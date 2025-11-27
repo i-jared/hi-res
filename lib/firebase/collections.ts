@@ -38,6 +38,15 @@ export interface Team {
   updated_at?: Timestamp;
 }
 
+export interface Settings {
+  id: string;
+  user_id: string;
+  google_font?: string;
+  current_team_id?: string;
+  created_at?: Timestamp;
+  updated_at?: Timestamp;
+}
+
 export interface TeamMember {
   id: string;
   team_id: string;
@@ -399,5 +408,36 @@ export const getInvitesByEmail = async (email: string) => {
     where("status", "==", "pending"),
     orderBy("created_at", "desc")
   );
+};
+
+export const getSettings = async (userId: string) => {
+  return getDocument<Settings>("settings", userId);
+};
+
+export const createSettings = async (
+  userId: string,
+  data: Omit<Settings, "id" | "created_at" | "updated_at">
+) => {
+  return createDocument<Settings>("settings", userId, {
+    ...data,
+    user_id: userId,
+    created_at: serverTimestamp() as Timestamp,
+    updated_at: serverTimestamp() as Timestamp,
+  });
+};
+
+export const updateSettings = async (
+  userId: string,
+  data: Partial<Omit<Settings, "id" | "user_id" | "created_at">>
+) => {
+  const settings = await getSettings(userId);
+  if (!settings) {
+    await createSettings(userId, { user_id: userId, ...data });
+  } else {
+    return updateDocument<Settings>("settings", userId, {
+      ...data,
+      updated_at: serverTimestamp() as Timestamp,
+    });
+  }
 };
 

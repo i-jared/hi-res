@@ -5,12 +5,17 @@ import { useRouter } from "next/navigation";
 import { useFirebaseAuth } from "@/lib/hooks/use-firebase-auth";
 import { useUserTeams } from "@/lib/hooks/use-team-queries";
 import { useCollections } from "@/lib/hooks/use-collection-queries";
-import { useDocuments, useDocument } from "@/lib/hooks/use-document-queries";
+import { useDocuments, useDocument, useUpdateDocument } from "@/lib/hooks/use-document-queries";
+import { useUpdateCollection } from "@/lib/hooks/use-collection-queries";
+import { useSettings, useUpdateSettings } from "@/lib/hooks/use-settings-queries";
 import { CreateTeamForm } from "@/lib/components/create-team-modal";
 import { CreateCollectionPopup } from "@/lib/components/create-collection-popup";
 import { CreateDocumentPopup } from "@/lib/components/create-document-popup";
 import { DocumentEditor } from "@/lib/components/document-editor";
+import { FontSelectorModal } from "@/lib/components/font-selector-modal";
+import { NotificationBell } from "@/lib/components/notification-bell";
 import { Collection, Document } from "@/lib/firebase/collections";
+import { uploadFile } from "@/lib/firebase/storage";
 
 interface SelectedDocument {
   id: string;
@@ -24,7 +29,6 @@ export default function DashboardPage() {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showCollectionPopup, setShowCollectionPopup] = useState(false);
   const [showDocumentPopup, setShowDocumentPopup] = useState(false);
-  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [selectedCollection, setSelectedCollection] = useState<Collection | null>(
     null
   );
@@ -34,12 +38,48 @@ export default function DashboardPage() {
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const kebabMenuRef = useRef<HTMLDivElement>(null);
+  const kebabButtonRef = useRef<HTMLButtonElement>(null);
   const [showSettingsDropdown, setShowSettingsDropdown] = useState(false);
+  const [showKebabMenu, setShowKebabMenu] = useState(false);
+  const [showTitleModal, setShowTitleModal] = useState(false);
+  const [showBannerModal, setShowBannerModal] = useState(false);
+  const [showCollectionKebabMenu, setShowCollectionKebabMenu] = useState(false);
+  const [showCollectionNameModal, setShowCollectionNameModal] = useState(false);
+  const [showFontSelector, setShowFontSelector] = useState(false);
+  const [titleValue, setTitleValue] = useState("");
+  const [collectionNameValue, setCollectionNameValue] = useState("");
+  const [isUploadingBanner, setIsUploadingBanner] = useState(false);
+  const updateDocumentMutation = useUpdateDocument();
+  const updateCollectionMutation = useUpdateCollection();
+  const { data: settings } = useSettings(user?.uid);
+  const updateSettings = useUpdateSettings();
+  const collectionKebabMenuRef = useRef<HTMLDivElement>(null);
+  const collectionKebabButtonRef = useRef<HTMLButtonElement>(null);
   
   const { data: documentData } = useDocument(
     selectedCollection?.id,
     selectedDocument?.id
   );
+
+  // Use settings.current_team_id as the source of truth, fallback to first team
+  const selectedTeamId = settings?.current_team_id || (teams && teams.length > 0 ? teams[0].id : null);
+
+  // Update settings if we have teams but no current_team_id selected
+  useEffect(() => {
+    if (user && teams && teams.length > 0 && !settings?.current_team_id) {
+      updateSettings.mutate({
+        userId: user.uid,
+        data: { current_team_id: teams[0].id },
+      });
+    }
+  }, [user, teams, settings?.current_team_id, updateSettings]);
+
+  // Clear selection when team changes
+  useEffect(() => {
+    setSelectedCollection(null);
+    setSelectedDocument(null);
+  }, [selectedTeamId]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -52,11 +92,110 @@ export default function DashboardPage() {
       ) {
         setShowSettingsDropdown(false);
       }
+      if (
+        showKebabMenu &&
+        kebabMenuRef.current &&
+        kebabButtonRef.current &&
+        !kebabMenuRef.current.contains(event.target as Node) &&
+        !kebabButtonRef.current.contains(event.target as Node)
+      ) {
+        setShowKebabMenu(false);
+      }
+      if (
+        showCollectionKebabMenu &&
+        collectionKebabMenuRef.current &&
+        collectionKebabButtonRef.current &&
+        !collectionKebabMenuRef.current.contains(event.target as Node) &&
+        !collectionKebabButtonRef.current.contains(event.target as Node)
+      ) {
+        setShowCollectionKebabMenu(false);
+      }
     };
 
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [showSettingsDropdown]);
+  }, [showSettingsDropdown, showKebabMenu, showCollectionKebabMenu]);
+
+  useEffect(() => {
+    if (documentData?.title) {
+      setTitleValue(documentData.title);
+    }
+  }, [documentData]);
+
+  useEffect(() => {
+    if (selectedCollection?.name) {
+      setCollectionNameValue(selectedCollection.name);
+    }
+  }, [selectedCollection]);
+
+  useEffect(() => {
+    if (settings?.google_font) {
+      const fontUrl = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(settings.google_font)}:wght@400;500;600;700&display=swap`;
+      const existingLink = document.querySelector(`link[href="${fontUrl}"]`);
+      
+      if (!existingLink) {
+        const link = document.createElement("link");
+        link.href = fontUrl;
+        link.rel = "stylesheet";
+        document.head.appendChild(link);
+      }
+    }
+  }, [settings?.google_font]);
+
+  const handleUpdateTitle = async () => {
+    if (!titleValue.trim() || !selectedCollection || !selectedDocument) return;
+    
+    try {
+      await updateDocumentMutation.mutateAsync({
+        collectionId: selectedCollection.id,
+        documentId: selectedDocument.id,
+        data: { title: titleValue.trim() },
+      });
+      setSelectedDocument({ ...selectedDocument, title: titleValue.trim() });
+      setShowTitleModal(false);
+      setShowKebabMenu(false);
+    } catch (error) {
+      console.error("Failed to update title:", error);
+    }
+  };
+
+  const handleBannerUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedCollection || !selectedDocument) return;
+
+    setIsUploadingBanner(true);
+    try {
+      const path = `documents/${selectedDocument.id}/banner/${crypto.randomUUID()}`;
+      const url = await uploadFile(path, file);
+      await updateDocumentMutation.mutateAsync({
+        collectionId: selectedCollection.id,
+        documentId: selectedDocument.id,
+        data: { banner_image: url },
+      });
+      setShowBannerModal(false);
+      setShowKebabMenu(false);
+    } catch (error) {
+      console.error("Failed to upload banner:", error);
+    } finally {
+      setIsUploadingBanner(false);
+    }
+  };
+
+  const handleUpdateCollectionName = async () => {
+    if (!collectionNameValue.trim() || !selectedCollection) return;
+    
+    try {
+      await updateCollectionMutation.mutateAsync({
+        collectionId: selectedCollection.id,
+        data: { name: collectionNameValue.trim() },
+      });
+      setSelectedCollection({ ...selectedCollection, name: collectionNameValue.trim() });
+      setShowCollectionNameModal(false);
+      setShowCollectionKebabMenu(false);
+    } catch (error) {
+      console.error("Failed to update collection name:", error);
+    }
+  };
 
   if (loading || teamsLoading) {
     return (
@@ -99,9 +238,62 @@ export default function DashboardPage() {
                     />
                   </svg>
                 </button>
-                <h1 className="text-3xl font-bold text-black dark:text-zinc-50">
+                <h1
+                  className="text-3xl font-bold text-black dark:text-zinc-50"
+                  style={{
+                    fontFamily: settings?.google_font ? `${settings.google_font}, serif` : undefined,
+                  }}
+                >
                   {selectedDocument.title}
                 </h1>
+                <div className="relative">
+                  <button
+                    ref={kebabButtonRef}
+                    onClick={() => setShowKebabMenu(!showKebabMenu)}
+                    className="flex items-center justify-center rounded-sm p-2 text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
+                    aria-label="Document options"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth={2}
+                      stroke="currentColor"
+                      className="h-5 w-5"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z"
+                      />
+                    </svg>
+                  </button>
+                  {showKebabMenu && (
+                    <div
+                      ref={kebabMenuRef}
+                      className="absolute right-0 top-full z-50 mt-1 w-48 rounded-sm border border-white/20 bg-black"
+                    >
+                      <button
+                        onClick={() => {
+                          setShowTitleModal(true);
+                          setShowKebabMenu(false);
+                        }}
+                        className="w-full px-4 py-2 text-left text-sm text-white hover:bg-white/10"
+                      >
+                        Change Title
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowBannerModal(true);
+                          setShowKebabMenu(false);
+                        }}
+                        className="w-full px-4 py-2 text-left text-sm text-white hover:bg-white/10"
+                      >
+                        {documentData?.banner_image ? "Edit Banner" : "Add Banner"}
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             ) : selectedCollection ? (
               <div className="flex items-center gap-4">
@@ -124,9 +316,53 @@ export default function DashboardPage() {
                     />
                   </svg>
                 </button>
-                <h1 className="text-3xl font-bold text-black dark:text-zinc-50">
+                <h1
+                  className="text-3xl font-bold text-black dark:text-zinc-50"
+                  style={{
+                    fontFamily: settings?.google_font ? `${settings.google_font}, serif` : undefined,
+                  }}
+                >
                   {selectedCollection.name}
                 </h1>
+                <div className="relative">
+                  <button
+                    ref={collectionKebabButtonRef}
+                    onClick={() => setShowCollectionKebabMenu(!showCollectionKebabMenu)}
+                    className="flex items-center justify-center rounded-sm p-2 text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
+                    aria-label="Collection options"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth={2}
+                      stroke="currentColor"
+                      className="h-5 w-5"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z"
+                      />
+                    </svg>
+                  </button>
+                  {showCollectionKebabMenu && (
+                    <div
+                      ref={collectionKebabMenuRef}
+                      className="absolute right-0 top-full z-50 mt-1 w-48 rounded-sm border border-white/20 bg-black"
+                    >
+                      <button
+                        onClick={() => {
+                          setShowCollectionNameModal(true);
+                          setShowCollectionKebabMenu(false);
+                        }}
+                        className="w-full px-4 py-2 text-left text-sm text-white hover:bg-white/10"
+                      >
+                        Change Name
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             ) : (
               <>
@@ -139,10 +375,12 @@ export default function DashboardPage() {
               </>
             )}
           </div>
-          {hasTeam && (
-            <div className="flex items-center gap-4">
-              <div className="relative">
-                <button
+          <div className="flex items-center gap-4">
+            <NotificationBell />
+            {hasTeam && (
+              <>
+                <div className="relative">
+                  <button
                   ref={settingsButtonRef}
                   onClick={() => setShowSettingsDropdown(!showSettingsDropdown)}
                   className="flex items-center justify-center text-black transition-colors hover:text-zinc-600 dark:text-zinc-50 dark:hover:text-zinc-400"
@@ -170,7 +408,7 @@ export default function DashboardPage() {
                 {showSettingsDropdown && (
                   <div
                     ref={dropdownRef}
-                    className="absolute right-0 top-full mt-2 w-32 rounded-sm border border-zinc-200 bg-white py-1 dark:border-zinc-800 dark:bg-black"
+                    className="absolute right-0 top-full mt-2 w-40 rounded-sm border border-zinc-200 bg-white py-1 dark:border-zinc-800 dark:bg-black"
                   >
                     <button
                       onClick={() => {
@@ -181,38 +419,49 @@ export default function DashboardPage() {
                     >
                       Team
                     </button>
+                    <button
+                      onClick={() => {
+                        setShowSettingsDropdown(false);
+                        setShowFontSelector(true);
+                      }}
+                      className="block w-full px-4 py-2 text-left text-sm text-black hover:bg-zinc-50 dark:text-zinc-50 dark:hover:bg-zinc-900"
+                    >
+                      Font
+                    </button>
                   </div>
                 )}
-              </div>
-              <button
-                ref={addButtonRef}
-                onClick={() => {
-                  if (selectedCollection) {
-                    setShowDocumentPopup(true);
-                  } else if (teams && teams.length > 0) {
-                    setSelectedTeamId(teams[0].id);
-                    setShowCollectionPopup(true);
-                  }
-                }}
-                className="flex items-center justify-center text-black transition-colors hover:text-zinc-600 dark:text-zinc-50 dark:hover:text-zinc-400"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={2}
-                  stroke="currentColor"
-                  className="h-5 w-5"
+                </div>
+                <div className="relative">
+                <button
+                  ref={addButtonRef}
+                  onClick={() => {
+                    if (selectedCollection) {
+                      setShowDocumentPopup(true);
+                    } else if (selectedTeamId) {
+                      setShowCollectionPopup(true);
+                    }
+                  }}
+                  className="flex items-center justify-center text-black transition-colors hover:text-zinc-600 dark:text-zinc-50 dark:hover:text-zinc-400"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M12 4.5v15m7.5-7.5h-15"
-                  />
-                </svg>
-              </button>
-            </div>
-          )}
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth={2}
+                    stroke="currentColor"
+                    className="h-5 w-5"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M12 4.5v15m7.5-7.5h-15"
+                    />
+                  </svg>
+                </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
 
         {!hasTeam && !selectedCollection && (
@@ -247,15 +496,13 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {hasTeam && teams && !selectedCollection && (
+        {hasTeam && selectedTeamId && !selectedCollection && (
           <div className="mt-8 grid grid-cols-1 gap-8 sm:grid-cols-2">
-            {teams.map((team) => (
-              <TeamCollectionsSection
-                key={team.id}
-                teamId={team.id}
-                onSelectCollection={setSelectedCollection}
-              />
-            ))}
+            <TeamCollectionsSection
+              teamId={selectedTeamId}
+              onSelectCollection={setSelectedCollection}
+              selectedFont={settings?.google_font}
+            />
           </div>
         )}
 
@@ -263,11 +510,21 @@ export default function DashboardPage() {
           <CollectionDocumentsSection
             collectionId={selectedCollection.id}
             onSelectDocument={(doc) => setSelectedDocument({ id: doc.id, title: doc.title })}
+            selectedFont={settings?.google_font}
           />
         )}
 
         {selectedCollection && selectedDocument && documentData && (
           <div className="mt-8">
+            {documentData.banner_image && (
+              <div className="mb-8 w-full overflow-hidden rounded-sm">
+                <img
+                  src={documentData.banner_image}
+                  alt="Document banner"
+                  className="w-full object-cover"
+                />
+              </div>
+            )}
             <DocumentEditor
               documentId={selectedDocument.id}
               collectionId={selectedCollection.id}
@@ -281,7 +538,6 @@ export default function DashboardPage() {
             isOpen={showCollectionPopup}
             onClose={() => {
               setShowCollectionPopup(false);
-              setSelectedTeamId(null);
             }}
             buttonRef={addButtonRef}
             teamId={selectedTeamId}
@@ -299,6 +555,148 @@ export default function DashboardPage() {
             }}
           />
         )}
+
+        {showTitleModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <div className="w-96 rounded-sm border border-white/20 bg-black p-6">
+              <h3 className="mb-4 text-lg font-semibold text-white">Change Title</h3>
+              <input
+                type="text"
+                value={titleValue}
+                onChange={(e) => setTitleValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handleUpdateTitle();
+                  } else if (e.key === "Escape") {
+                    setShowTitleModal(false);
+                  }
+                }}
+                autoFocus
+                className="mb-4 w-full rounded-sm border border-white/20 bg-black px-3 py-2 text-white focus:border-white focus:outline-none"
+                placeholder="Enter document title"
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setShowTitleModal(false)}
+                  className="rounded-sm px-4 py-2 text-sm text-white hover:bg-white/10"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleUpdateTitle}
+                  disabled={!titleValue.trim() || updateDocumentMutation.isPending}
+                  className="rounded-sm bg-white px-4 py-2 text-sm font-medium text-black hover:bg-white/90 disabled:opacity-50"
+                >
+                  {updateDocumentMutation.isPending ? "Saving..." : "Save"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showBannerModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <div className="w-96 rounded-sm border border-white/20 bg-black p-6">
+              <h3 className="mb-4 text-lg font-semibold text-white">
+                {documentData?.banner_image ? "Edit Banner" : "Add Banner"}
+              </h3>
+              {documentData?.banner_image && (
+                <div className="mb-4">
+                  <img
+                    src={documentData.banner_image}
+                    alt="Banner"
+                    className="mb-2 max-h-48 w-full rounded-sm object-cover"
+                  />
+                  <button
+                    onClick={async () => {
+                      if (!selectedCollection || !selectedDocument) return;
+                      try {
+                        await updateDocumentMutation.mutateAsync({
+                          collectionId: selectedCollection.id,
+                          documentId: selectedDocument.id,
+                          data: { banner_image: "" },
+                        });
+                        setShowBannerModal(false);
+                      } catch (error) {
+                        console.error("Failed to remove banner:", error);
+                      }
+                    }}
+                    className="text-sm text-red-400 hover:text-red-300"
+                  >
+                    Remove Banner
+                  </button>
+                </div>
+              )}
+              <label className="mb-4 block">
+                <div className="cursor-pointer rounded-sm border border-white/20 bg-black px-4 py-2 text-center text-sm text-white hover:bg-white/10">
+                  {isUploadingBanner ? "Uploading..." : "Choose Image"}
+                </div>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleBannerUpload}
+                  disabled={isUploadingBanner}
+                  className="hidden"
+                />
+              </label>
+              <div className="flex justify-end">
+                <button
+                  onClick={() => setShowBannerModal(false)}
+                  className="rounded-sm px-4 py-2 text-sm text-white hover:bg-white/10"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showCollectionNameModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <div className="w-96 rounded-sm border border-white/20 bg-black p-6">
+              <h3 className="mb-4 text-lg font-semibold text-white">Change Collection Name</h3>
+              <input
+                type="text"
+                value={collectionNameValue}
+                onChange={(e) => setCollectionNameValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handleUpdateCollectionName();
+                  } else if (e.key === "Escape") {
+                    setShowCollectionNameModal(false);
+                  }
+                }}
+                autoFocus
+                className="mb-4 w-full rounded-sm border border-white/20 bg-black px-3 py-2 text-white focus:border-white focus:outline-none"
+                placeholder="Enter collection name"
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setShowCollectionNameModal(false)}
+                  className="rounded-sm px-4 py-2 text-sm text-white hover:bg-white/10"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleUpdateCollectionName}
+                  disabled={!collectionNameValue.trim() || updateCollectionMutation.isPending}
+                  className="rounded-sm bg-white px-4 py-2 text-sm font-medium text-black hover:bg-white/90 disabled:opacity-50"
+                >
+                  {updateCollectionMutation.isPending ? "Saving..." : "Save"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showFontSelector && user && (
+          <FontSelectorModal
+            isOpen={showFontSelector}
+            onClose={() => setShowFontSelector(false)}
+            userId={user.uid}
+            currentFont={settings?.google_font}
+          />
+        )}
       </div>
     </div>
   );
@@ -307,9 +705,11 @@ export default function DashboardPage() {
 function TeamCollectionsSection({
   teamId,
   onSelectCollection,
+  selectedFont,
 }: {
   teamId: string;
   onSelectCollection: (collection: Collection) => void;
+  selectedFont?: string;
 }) {
   const { data: collections, isLoading } = useCollections(teamId);
 
@@ -323,9 +723,14 @@ function TeamCollectionsSection({
         <button
           key={collection.id}
           onClick={() => onSelectCollection(collection)}
-          className="aspect-square w-full rounded-sm border border-zinc-200 bg-white p-6 text-left shadow-none transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+          className="aspect-square w-full rounded-sm border border-zinc-200 bg-white p-4 text-left shadow-none transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800"
         >
-          <h3 className="text-lg font-medium text-black dark:text-zinc-50">
+          <h3
+            className="text-6xl font-bold text-black dark:text-zinc-50"
+            style={{
+              fontFamily: selectedFont ? `${selectedFont}, serif` : "serif",
+            }}
+          >
             {collection.name || "Unnamed Collection"}
           </h3>
         </button>
@@ -337,9 +742,11 @@ function TeamCollectionsSection({
 function CollectionDocumentsSection({
   collectionId,
   onSelectDocument,
+  selectedFont,
 }: {
   collectionId: string;
   onSelectDocument: (doc: Document) => void;
+  selectedFont?: string;
 }) {
   const { data: documents, isLoading } = useDocuments(collectionId);
 
@@ -366,16 +773,22 @@ function CollectionDocumentsSection({
           className="aspect-square w-full rounded-sm border border-zinc-200 bg-white p-4 text-left shadow-none transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800"
         >
           {doc.banner_image && (
-            <div className="mb-3 h-32 w-full overflow-hidden rounded-sm bg-zinc-100 dark:bg-zinc-800">
-              <div className="h-full w-full bg-zinc-200 dark:bg-zinc-800" />
+            <div className="mb-3 h-32 w-full overflow-hidden rounded-sm">
+              <img
+                src={doc.banner_image}
+                alt={doc.title || "Document banner"}
+                className="h-full w-full object-cover"
+              />
             </div>
           )}
-          <h3 className="text-lg font-medium text-black dark:text-zinc-50">
+          <h3
+            className="text-6xl font-bold text-black dark:text-zinc-50"
+            style={{
+              fontFamily: selectedFont ? `${selectedFont}, serif` : "serif",
+            }}
+          >
             {doc.title || "Untitled"}
           </h3>
-          <p className="mt-2 text-sm text-zinc-500 line-clamp-3 dark:text-zinc-400">
-            {doc.content || "No content"}
-          </p>
         </button>
       ))}
     </div>

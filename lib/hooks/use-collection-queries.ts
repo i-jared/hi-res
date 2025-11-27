@@ -3,6 +3,7 @@ import {
   getAllCollections,
   getCollectionsByTeam,
   createCollection,
+  updateCollection,
   Collection,
 } from "@/lib/firebase/collections";
 
@@ -30,6 +31,26 @@ export function useCreateCollection() {
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["collections", variables.teamId] });
+    },
+  });
+}
+
+export function useUpdateCollection() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      collectionId,
+      data,
+    }: {
+      collectionId: string;
+      data: Partial<Pick<Collection, "name">>;
+    }) => {
+      await updateCollection(collectionId, data);
+      return { collectionId };
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["collections"] });
     },
   });
 }

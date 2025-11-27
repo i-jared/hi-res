@@ -22,18 +22,44 @@ export function DocumentEditor({
   initialContent,
 }: DocumentEditorProps) {
   const [isSaving, setIsSaving] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isSaved, setIsSaved] = useState(false);
   const updateDocumentMutation = useUpdateDocument();
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const hideSavingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const hideSavedTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const editingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedContent = useRef(initialContent);
 
   const debouncedSave = useCallback(
     (content: string) => {
+      // Show editing indicator when user types
+      setIsEditing(true);
+      setIsSaved(false);
+      
+      // Clear any existing editing timeout
+      if (editingTimeoutRef.current) {
+        clearTimeout(editingTimeoutRef.current);
+      }
+      
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
+      
       saveTimeoutRef.current = setTimeout(async () => {
         if (content !== lastSavedContent.current) {
+          // Hide editing, show saving
+          setIsEditing(false);
           setIsSaving(true);
+          
+          // Clear any existing hide timeouts
+          if (hideSavingTimeoutRef.current) {
+            clearTimeout(hideSavingTimeoutRef.current);
+          }
+          if (hideSavedTimeoutRef.current) {
+            clearTimeout(hideSavedTimeoutRef.current);
+          }
+          
           try {
             await updateDocumentMutation.mutateAsync({
               collectionId,
@@ -41,11 +67,25 @@ export function DocumentEditor({
               data: { content },
             });
             lastSavedContent.current = content;
+            
+            // Show saved indicator after successful save
+            setIsSaving(false);
+            setIsSaved(true);
+            
+            // Hide saved indicator after 2 seconds
+            hideSavedTimeoutRef.current = setTimeout(() => {
+              setIsSaved(false);
+            }, 2000);
           } catch (error) {
             console.error("Failed to save document:", error);
-          } finally {
             setIsSaving(false);
+            setIsEditing(false);
           }
+        } else {
+          // Content hasn't changed, just hide editing after a short delay
+          editingTimeoutRef.current = setTimeout(() => {
+            setIsEditing(false);
+          }, 300);
         }
       }, 1000);
     },
@@ -81,8 +121,19 @@ export function DocumentEditor({
 
   useEffect(() => {
     return () => {
+      // Clear all pending timeouts on unmount
+      // Note: Accessing ref.current in cleanup is correct for timeout refs
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
+      }
+      if (hideSavingTimeoutRef.current) {
+        clearTimeout(hideSavingTimeoutRef.current);
+      }
+      if (hideSavedTimeoutRef.current) {
+        clearTimeout(hideSavedTimeoutRef.current);
+      }
+      if (editingTimeoutRef.current) {
+        clearTimeout(editingTimeoutRef.current);
       }
     };
   }, []);
@@ -105,9 +156,19 @@ export function DocumentEditor({
   return (
     <div className="relative">
       <EditorSideMenu editor={editor} documentId={documentId} />
+      {isEditing && !isSaving && !isSaved && (
+        <div className="fixed right-8 top-8 z-50 rounded-sm bg-white/10 px-3 py-1 text-xs text-zinc-400">
+          Editing...
+        </div>
+      )}
       {isSaving && (
         <div className="fixed right-8 top-8 z-50 rounded-sm bg-white/10 px-3 py-1 text-xs text-zinc-400">
           Saving...
+        </div>
+      )}
+      {isSaved && !isSaving && (
+        <div className="fixed right-8 top-8 z-50 rounded-sm bg-white/10 px-3 py-1 text-xs text-green-400">
+          Saved
         </div>
       )}
       <EditorContent editor={editor} />

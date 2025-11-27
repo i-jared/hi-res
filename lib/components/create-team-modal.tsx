@@ -6,9 +6,10 @@ import { useCreateTeam } from "@/lib/hooks/use-team-queries";
 interface CreateTeamFormProps {
   userId: string;
   onCancel: () => void;
+  onSuccess?: (teamId: string) => void;
 }
 
-export function CreateTeamForm({ userId, onCancel }: CreateTeamFormProps) {
+export function CreateTeamForm({ userId, onCancel, onSuccess }: CreateTeamFormProps) {
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const createTeamMutation = useCreateTeam();
@@ -23,8 +24,11 @@ export function CreateTeamForm({ userId, onCancel }: CreateTeamFormProps) {
     }
 
     try {
-      await createTeamMutation.mutateAsync({ name: name.trim(), userId });
+      const teamId = await createTeamMutation.mutateAsync({ name: name.trim(), userId });
       setName("");
+      if (onSuccess) {
+        onSuccess(teamId);
+      }
     } catch (err: unknown) {
       if (err instanceof Error) {
         setError(err.message);
@@ -59,7 +63,7 @@ export function CreateTeamForm({ userId, onCancel }: CreateTeamFormProps) {
             onChange={(e) => setName(e.target.value)}
             required
             autoFocus
-            className="mt-1 block w-full rounded-sm border border-white/20 bg-black px-3 py-2 text-white focus:border-white focus:outline-none dark:border-white/20 dark:bg-black dark:text-white"
+            className="mt-1 block w-full rounded-sm border border-zinc-200 bg-white px-3 py-2 text-black focus:border-black focus:outline-none dark:border-white/20 dark:bg-black dark:text-white dark:focus:border-white"
             placeholder="Enter team name"
           />
         </div>
@@ -67,14 +71,14 @@ export function CreateTeamForm({ userId, onCancel }: CreateTeamFormProps) {
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-sm px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-black/80 dark:text-white dark:hover:bg-black/80"
+            className="rounded-sm px-4 py-2 text-sm font-medium text-zinc-600 transition-colors hover:text-black dark:text-zinc-400 dark:hover:text-white"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={createTeamMutation.isPending}
-            className="rounded-sm bg-black px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-black/80 disabled:opacity-50 dark:bg-black dark:hover:bg-black/80"
+            className="rounded-sm bg-black px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-black/80 disabled:opacity-50 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
           >
             {createTeamMutation.isPending ? "Creating..." : "Create"}
           </button>
@@ -83,4 +87,3 @@ export function CreateTeamForm({ userId, onCancel }: CreateTeamFormProps) {
     </div>
   );
 }
-
