@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useQueryState } from "nuqs";
 import { useFirebaseAuth } from "@/lib/hooks/use-firebase-auth";
 import { useUserTeams } from "@/lib/hooks/use-team-queries";
 import { useCollections } from "@/lib/hooks/use-collection-queries";
@@ -14,8 +15,9 @@ import { CreateDocumentPopup } from "@/lib/components/create-document-popup";
 import { DocumentEditor } from "@/lib/components/document-editor";
 import { FontSelectorModal } from "@/lib/components/font-selector-modal";
 import { NotificationBell } from "@/lib/components/notification-bell";
-import { Collection, Document } from "@/lib/firebase/collections";
+import { Collection, Document, getCollection } from "@/lib/firebase/collections";
 import { uploadFile } from "@/lib/firebase/storage";
+import { useQuery } from "@tanstack/react-query";
 
 interface SelectedDocument {
   id: string;
@@ -26,15 +28,35 @@ export default function DashboardPage() {
   const router = useRouter();
   const { user, loading } = useFirebaseAuth();
   const { data: teams, isLoading: teamsLoading } = useUserTeams(user?.uid);
+  const [collectionId, setCollectionId] = useQueryState("collection", {
+    clearOnDefault: false,
+  });
+  const [documentId, setDocumentId] = useQueryState("document", {
+    clearOnDefault: false,
+  });
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showCollectionPopup, setShowCollectionPopup] = useState(false);
   const [showDocumentPopup, setShowDocumentPopup] = useState(false);
-  const [selectedCollection, setSelectedCollection] = useState<Collection | null>(
-    null
+  
+  // Fetch collection data based on collectionId from URL
+  const { data: selectedCollection, isLoading: isLoadingCollection } = useQuery({
+    queryKey: ["collection", collectionId],
+    queryFn: async () => {
+      if (!collectionId) return null;
+      return getCollection(collectionId);
+    },
+    enabled: !!collectionId,
+  });
+
+  // Fetch document data based on documentId from URL
+  const { data: documentData, isLoading: isLoadingDocument } = useDocument(
+    collectionId || undefined,
+    documentId || undefined
   );
-  const [selectedDocument, setSelectedDocument] = useState<SelectedDocument | null>(
-    null
-  );
+  
+  const selectedDocument: SelectedDocument | null = documentData && documentId
+    ? { id: documentId, title: documentData.title }
+    : null;
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -56,14 +78,10 @@ export default function DashboardPage() {
   const updateSettings = useUpdateSettings();
   const collectionKebabMenuRef = useRef<HTMLDivElement>(null);
   const collectionKebabButtonRef = useRef<HTMLButtonElement>(null);
-  
-  const { data: documentData } = useDocument(
-    selectedCollection?.id,
-    selectedDocument?.id
-  );
 
   // Use settings.current_team_id as the source of truth, fallback to first team
   const selectedTeamId = settings?.current_team_id || (teams && teams.length > 0 ? teams[0].id : null);
+  const previousTeamIdRef = useRef<string | null>(null);
 
   // Update settings if we have teams but no current_team_id selected
   useEffect(() => {
@@ -75,11 +93,35 @@ export default function DashboardPage() {
     }
   }, [user, teams, settings?.current_team_id, updateSettings]);
 
-  // Clear selection when team changes
+  // Clear selection when team changes (but not on initial load)
   useEffect(() => {
-    setSelectedCollection(null);
-    setSelectedDocument(null);
-  }, [selectedTeamId]);
+    // Only clear if team actually changed (not initial load)
+    if (previousTeamIdRef.current !== null && previousTeamIdRef.current !== selectedTeamId && selectedTeamId !== null) {
+      // Team actually changed, clear selections
+      setCollectionId(null);
+      setDocumentId(null);
+    }
+    // Update ref after checking, but only if we have a valid team ID
+    if (selectedTeamId !== null) {
+      previousTeamIdRef.current = selectedTeamId;
+    }
+  }, [selectedTeamId, setCollectionId, setDocumentId]);
+  
+  // Validate that collection belongs to current team, clear if not
+  // Only validate after both collection and team are loaded and team is stable (not initializing)
+  useEffect(() => {
+    if (
+      selectedCollection && 
+      selectedTeamId && 
+      !isLoadingCollection && 
+      previousTeamIdRef.current === selectedTeamId && // Team is stable (not initializing)
+      selectedCollection.team_id !== selectedTeamId
+    ) {
+      // Collection doesn't belong to current team, clear it
+      setCollectionId(null);
+      setDocumentId(null);
+    }
+  }, [selectedCollection, selectedTeamId, isLoadingCollection, setCollectionId, setDocumentId]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -143,15 +185,14 @@ export default function DashboardPage() {
   }, [settings?.google_font]);
 
   const handleUpdateTitle = async () => {
-    if (!titleValue.trim() || !selectedCollection || !selectedDocument) return;
+    if (!titleValue.trim() || !collectionId || !documentId) return;
     
     try {
       await updateDocumentMutation.mutateAsync({
-        collectionId: selectedCollection.id,
-        documentId: selectedDocument.id,
+        collectionId: collectionId,
+        documentId: documentId,
         data: { title: titleValue.trim() },
       });
-      setSelectedDocument({ ...selectedDocument, title: titleValue.trim() });
       setShowTitleModal(false);
       setShowKebabMenu(false);
     } catch (error) {
@@ -161,15 +202,15 @@ export default function DashboardPage() {
 
   const handleBannerUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !selectedCollection || !selectedDocument) return;
+    if (!file || !collectionId || !documentId) return;
 
     setIsUploadingBanner(true);
     try {
-      const path = `documents/${selectedDocument.id}/banner/${crypto.randomUUID()}`;
+      const path = `documents/${documentId}/banner/${crypto.randomUUID()}`;
       const url = await uploadFile(path, file);
       await updateDocumentMutation.mutateAsync({
-        collectionId: selectedCollection.id,
-        documentId: selectedDocument.id,
+        collectionId: collectionId,
+        documentId: documentId,
         data: { banner_image: url },
       });
       setShowBannerModal(false);
@@ -182,14 +223,13 @@ export default function DashboardPage() {
   };
 
   const handleUpdateCollectionName = async () => {
-    if (!collectionNameValue.trim() || !selectedCollection) return;
+    if (!collectionNameValue.trim() || !collectionId) return;
     
     try {
       await updateCollectionMutation.mutateAsync({
-        collectionId: selectedCollection.id,
+        collectionId: collectionId,
         data: { name: collectionNameValue.trim() },
       });
-      setSelectedCollection({ ...selectedCollection, name: collectionNameValue.trim() });
       setShowCollectionNameModal(false);
       setShowCollectionKebabMenu(false);
     } catch (error) {
@@ -220,7 +260,7 @@ export default function DashboardPage() {
             {selectedDocument ? (
               <div className="flex items-center gap-4">
                 <button
-                  onClick={() => setSelectedDocument(null)}
+                  onClick={() => setDocumentId(null)}
                   className="flex items-center justify-center text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
                 >
                   <svg
@@ -298,7 +338,10 @@ export default function DashboardPage() {
             ) : selectedCollection ? (
               <div className="flex items-center gap-4">
                 <button
-                  onClick={() => setSelectedCollection(null)}
+                  onClick={() => {
+                    setCollectionId(null);
+                    setDocumentId(null);
+                  }}
                   className="flex items-center justify-center text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
                 >
                   <svg
@@ -435,7 +478,7 @@ export default function DashboardPage() {
                 <button
                   ref={addButtonRef}
                   onClick={() => {
-                    if (selectedCollection) {
+                    if (collectionId) {
                       setShowDocumentPopup(true);
                     } else if (selectedTeamId) {
                       setShowCollectionPopup(true);
@@ -464,7 +507,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {!hasTeam && !selectedCollection && (
+        {!hasTeam && !collectionId && (
           <div className="flex min-h-[60vh] items-center justify-center">
             {showCreateForm ? (
               <CreateTeamForm
@@ -496,41 +539,57 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {hasTeam && selectedTeamId && !selectedCollection && (
+        {hasTeam && selectedTeamId && !collectionId && (
           <div className="mt-8 grid grid-cols-1 gap-8 sm:grid-cols-2">
             <TeamCollectionsSection
               teamId={selectedTeamId}
-              onSelectCollection={setSelectedCollection}
+              onSelectCollection={(collection) => setCollectionId(collection.id)}
               selectedFont={settings?.google_font}
             />
           </div>
         )}
 
-        {selectedCollection && !selectedDocument && (
-          <CollectionDocumentsSection
-            collectionId={selectedCollection.id}
-            onSelectDocument={(doc) => setSelectedDocument({ id: doc.id, title: doc.title })}
-            selectedFont={settings?.google_font}
-          />
+        {collectionId && !documentId && (
+          <>
+            {isLoadingCollection ? (
+              <div className="mt-8 flex min-h-[60vh] items-center justify-center">
+                <div className="text-zinc-500">Loading collection...</div>
+              </div>
+            ) : (
+              <CollectionDocumentsSection
+                collectionId={collectionId}
+                onSelectDocument={(doc) => setDocumentId(doc.id)}
+                selectedFont={settings?.google_font}
+              />
+            )}
+          </>
         )}
 
-        {selectedCollection && selectedDocument && documentData && (
-          <div className="mt-8">
-            {documentData.banner_image && (
-              <div className="mb-8 w-full overflow-hidden rounded-sm">
-                <img
-                  src={documentData.banner_image}
-                  alt="Document banner"
-                  className="w-full object-cover"
+        {collectionId && documentId && (
+          <>
+            {isLoadingDocument || isLoadingCollection ? (
+              <div className="mt-8 flex min-h-[60vh] items-center justify-center">
+                <div className="text-zinc-500">Loading document...</div>
+              </div>
+            ) : documentData && selectedCollection ? (
+              <div className="mt-8">
+                {documentData.banner_image && (
+                  <div className="mb-8 w-full overflow-hidden rounded-sm">
+                    <img
+                      src={documentData.banner_image}
+                      alt="Document banner"
+                      className="w-full object-cover"
+                    />
+                  </div>
+                )}
+                <DocumentEditor
+                  documentId={documentId}
+                  collectionId={collectionId}
+                  initialContent={documentData.content || ""}
                 />
               </div>
-            )}
-            <DocumentEditor
-              documentId={selectedDocument.id}
-              collectionId={selectedCollection.id}
-              initialContent={documentData.content || ""}
-            />
-          </div>
+            ) : null}
+          </>
         )}
 
         {hasTeam && selectedTeamId && (
@@ -544,14 +603,14 @@ export default function DashboardPage() {
           />
         )}
 
-        {selectedCollection && (
+        {collectionId && (
           <CreateDocumentPopup
             isOpen={showDocumentPopup}
             onClose={() => setShowDocumentPopup(false)}
             buttonRef={addButtonRef}
-            collectionId={selectedCollection.id}
+            collectionId={collectionId}
             onDocumentCreated={(documentId, title) => {
-              setSelectedDocument({ id: documentId, title });
+              setDocumentId(documentId);
             }}
           />
         )}
@@ -609,11 +668,11 @@ export default function DashboardPage() {
                   />
                   <button
                     onClick={async () => {
-                      if (!selectedCollection || !selectedDocument) return;
+                      if (!collectionId || !documentId) return;
                       try {
                         await updateDocumentMutation.mutateAsync({
-                          collectionId: selectedCollection.id,
-                          documentId: selectedDocument.id,
+                          collectionId: collectionId,
+                          documentId: documentId,
                           data: { banner_image: "" },
                         });
                         setShowBannerModal(false);

@@ -57,10 +57,10 @@ export const createDocument = async <T extends WithFieldValue<DocumentData>>(
 export const updateDocument = async <T extends WithFieldValue<DocumentData>>(
   collectionPath: string,
   documentId: string,
-  data: T
+  data: Partial<T>
 ) => {
   const docRef = doc(db, collectionPath, documentId);
-  await updateDoc(docRef, data);
+  await updateDoc(docRef, data as any);
 };
 
 export const deleteDocument = async (

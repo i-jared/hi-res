@@ -86,7 +86,7 @@ export const createCollection = async (
   collectionId: string,
   data: Omit<Collection, "id" | "created_at" | "updated_at">
 ) => {
-  return createDocument<Collection>("collections", collectionId, {
+  return createDocument<Omit<Collection, "id">>("collections", collectionId, {
     ...data,
     created_at: serverTimestamp() as Timestamp,
     updated_at: serverTimestamp() as Timestamp,
@@ -147,7 +147,7 @@ export const createDocumentInCollection = async (
   documentId: string,
   data: Omit<Document, "id" | "collection_id" | "created_at" | "updated_at">
 ) => {
-  return createDocument<Document>(
+  return createDocument<Omit<Document, "id">>(
     `collections/${collectionId}/documents`,
     documentId,
     {
@@ -237,7 +237,7 @@ export const createTeam = async (
   teamId: string,
   data: Omit<Team, "id" | "created_at" | "updated_at">
 ) => {
-  return createDocument<Team>("teams", teamId, {
+  return createDocument<Omit<Team, "id">>("teams", teamId, {
     ...data,
     created_at: serverTimestamp() as Timestamp,
     updated_at: serverTimestamp() as Timestamp,
@@ -295,7 +295,7 @@ export const addTeamMember = async (
   memberId: string,
   data: Omit<TeamMember, "id" | "team_id" | "joined_at">
 ) => {
-  return createDocument<TeamMember>(
+  return createDocument<Omit<TeamMember, "id">>(
     `teams/${teamId}/members`,
     memberId,
     {
@@ -361,7 +361,7 @@ export const createTeamInvite = async (
   inviteId: string,
   data: Omit<TeamInvite, "id" | "team_id" | "created_at" | "status">
 ) => {
-  return createDocument<TeamInvite>(
+  return createDocument<Omit<TeamInvite, "id">>(
     `teams/${teamId}/invites`,
     inviteId,
     {
@@ -418,7 +418,7 @@ export const createSettings = async (
   userId: string,
   data: Omit<Settings, "id" | "created_at" | "updated_at">
 ) => {
-  return createDocument<Settings>("settings", userId, {
+  return createDocument<Omit<Settings, "id">>("settings", userId, {
     ...data,
     user_id: userId,
     created_at: serverTimestamp() as Timestamp,
