@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, Suspense } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryState } from "nuqs";
 import { useFirebaseAuth } from "@/lib/hooks/use-firebase-auth";
@@ -24,7 +24,7 @@ interface SelectedDocument {
   title: string;
 }
 
-export default function DashboardPage() {
+function DashboardContent() {
   const router = useRouter();
   const { user, loading } = useFirebaseAuth();
   const { data: teams, isLoading: teamsLoading } = useUserTeams(user?.uid);
@@ -853,5 +853,17 @@ function CollectionDocumentsSection({
         </button>
       ))}
     </div>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-lg">Loading...</div>
+      </div>
+    }>
+      <DashboardContent />
+    </Suspense>
   );
 }
