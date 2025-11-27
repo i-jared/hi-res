@@ -53,6 +53,7 @@ export interface TeamMember {
   user_id: string;
   role?: string; // e.g., "owner", "admin", "member"
   joined_at: Timestamp;
+  invite_id?: string;
 }
 
 export interface TeamInvite {

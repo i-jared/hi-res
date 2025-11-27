@@ -208,7 +208,7 @@ function DashboardContent() {
 
     setIsUploadingBanner(true);
     try {
-      const path = `documents/${documentId}/banner/${crypto.randomUUID()}`;
+      const path = `collections/${collectionId}/documents/${documentId}/banner/${crypto.randomUUID()}`;
       const url = await uploadFile(path, file);
       await updateDocumentMutation.mutateAsync({
         collectionId: collectionId,

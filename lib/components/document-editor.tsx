@@ -155,7 +155,7 @@ export function DocumentEditor({
 
   return (
     <div className="relative">
-      <EditorSideMenu editor={editor} documentId={documentId} />
+      <EditorSideMenu editor={editor} documentId={documentId} collectionId={collectionId} />
       {isEditing && !isSaving && !isSaved && (
         <div className="fixed right-8 top-8 z-50 rounded-sm bg-white/10 px-3 py-1 text-xs text-zinc-400">
           Editing...

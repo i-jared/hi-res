@@ -7,9 +7,10 @@ import { uploadFile } from "@/lib/firebase/storage";
 interface EditorSideMenuProps {
   editor: Editor;
   documentId: string;
+  collectionId: string;
 }
 
-export function EditorSideMenu({ editor, documentId }: EditorSideMenuProps) {
+export function EditorSideMenu({ editor, documentId, collectionId }: EditorSideMenuProps) {
   const [isVisible, setIsVisible] = useState(false);
   const [top, setTop] = useState(0);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -83,7 +84,7 @@ export function EditorSideMenu({ editor, documentId }: EditorSideMenuProps) {
     try {
       // Create a unique path for the image
       const timestamp = Date.now();
-      const path = `documents/${documentId}/${timestamp}-${file.name}`;
+      const path = `collections/${collectionId}/documents/${documentId}/${timestamp}-${file.name}`;
       
       const url = await uploadFile(path, file);
       

@@ -1,10 +1,21 @@
 rules_version = '2';
-
-// Craft rules based on data in your Firestore database
-// allow write: if firestore.get(
-//    /databases/(default)/documents/users/$(request.auth.uid)).data.isAdmin;
 service firebase.storage {
   match /b/{bucket}/o {
+    
+    // Helper to check Firestore team membership
+    function isTeamMember(teamId) {
+      return firestore.exists(/databases/(default)/documents/teams/$(teamId)/members/$(request.auth.uid));
+    }
+
+    // Documents images (banners, content images)
+    // Path: collections/{collectionId}/documents/{documentId}/...
+    match /collections/{collectionId}/documents/{documentId}/{allPaths=**} {
+      allow read, write: if isTeamMember(
+        firestore.get(/databases/(default)/documents/collections/$(collectionId)).data.team_id
+      );
+    }
+    
+    // Explicitly deny everything else to be safe
     match /{allPaths=**} {
       allow read, write: if false;
     }

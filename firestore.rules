@@ -1,19 +1,93 @@
 rules_version = '2';
-
 service cloud.firestore {
   match /databases/{database}/documents {
+    
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isTeamMember(teamId) {
+      return isSignedIn() && exists(/databases/$(database)/documents/teams/$(teamId)/members/$(request.auth.uid));
+    }
 
-    // This rule allows anyone with your Firestore database reference to view, edit,
-    // and delete all data in your Firestore database. It is useful for getting
-    // started, but it is configured to expire after 30 days because it
-    // leaves your app open to attackers. At that time, all client
-    // requests to your Firestore database will be denied.
-    //
-    // Make sure to write security rules for your app before that time, or else
-    // all client requests to your Firestore database will be denied until you Update
-    // your rules
-    match /{document=**} {
-      allow read, write: if request.time < timestamp.date(2025, 12, 26);
+    // Teams
+    match /teams/{teamId} {
+      // Allow read if you are a member of the team
+      allow read: if isTeamMember(teamId);
+      // Anyone can create a team
+      allow create: if isSignedIn();
+      // Only members can update/delete (in a real app, restrict to owner/admin)
+      allow update, delete: if isTeamMember(teamId);
+
+      // Members Subcollection
+      match /members/{memberId} {
+        // Members can see other members
+        allow read: if isTeamMember(teamId);
+        
+        // Logic for joining/adding members:
+        allow create: if isSignedIn() && request.auth.uid == memberId && (
+          // 1. Creating a new team (user adds themselves as owner)
+          request.resource.data.role == 'owner' || 
+          
+          // 2. Accepting an invite
+          (request.resource.data.role == 'member' &&
+           request.resource.data.invite_id != null &&
+           get(/databases/$(database)/documents/teams/$(teamId)/invites/$(request.resource.data.invite_id)).data.email == request.auth.token.email)
+        );
+        
+        // Members can be updated/removed by team members (e.g. admin removing user)
+        allow update, delete: if isTeamMember(teamId);
+      }
+
+      // Invites Subcollection
+      match /invites/{inviteId} {
+        // Read: Team members OR the person invited
+        allow read: if isTeamMember(teamId) || (isSignedIn() && resource.data.email == request.auth.token.email);
+        
+        // Create: Only team members can send invites
+        allow create: if isTeamMember(teamId);
+        
+        // Update: Team members (revoke) OR invited user (accept/reject)
+        allow update: if isTeamMember(teamId) || (isSignedIn() && resource.data.email == request.auth.token.email);
+        
+        // Delete: Team members
+        allow delete: if isTeamMember(teamId);
+      }
+    }
+
+    // Collections
+    match /collections/{collectionId} {
+      // Check team_id on the collection document
+      allow read, update, delete: if isTeamMember(resource.data.team_id);
+      allow create: if isTeamMember(request.resource.data.team_id);
+      
+      // Documents Subcollection
+      match /documents/{documentId} {
+        // Helper to get team_id from parent collection
+        function getCollectionTeamId() {
+          return get(/databases/$(database)/documents/collections/$(collectionId)).data.team_id;
+        }
+        
+        allow read, write: if isTeamMember(getCollectionTeamId());
+      }
+    }
+    
+    // Settings
+    match /settings/{userId} {
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Collection Group Queries
+    
+    // Allow querying members where user_id == auth.uid (for "My Teams" list)
+    match /{path=**}/members/{memberId} {
+      allow read: if isSignedIn() && request.auth.uid == memberId;
+    }
+    
+    // Allow querying invites where email == auth.email (for "My Invites" list)
+    match /{path=**}/invites/{inviteId} {
+      allow read: if isSignedIn() && resource.data.email == request.auth.token.email;
     }
   }
 }

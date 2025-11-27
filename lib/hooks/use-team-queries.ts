@@ -264,6 +264,7 @@ export function useAcceptInvite() {
       await addTeamMember(teamId, userId, {
         user_id: userId,
         role: "member",
+        invite_id: inviteId,
       });
 
       // 2. Update invite status
