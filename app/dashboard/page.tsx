@@ -30,9 +30,11 @@ export default function DashboardPage() {
   const { data: teams, isLoading: teamsLoading } = useUserTeams(user?.uid);
   const [collectionId, setCollectionId] = useQueryState("collection", {
     clearOnDefault: false,
+    history: "push",
   });
   const [documentId, setDocumentId] = useQueryState("document", {
     clearOnDefault: false,
+    history: "push",
   });
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showCollectionPopup, setShowCollectionPopup] = useState(false);
