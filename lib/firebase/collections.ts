@@ -15,6 +15,7 @@ export interface Collection {
   id: string;
   name?: string;
   team_id: string;
+  order?: number;
   created_at?: Timestamp;
   updated_at?: Timestamp;
 }
@@ -76,11 +77,25 @@ export const getAllCollections = async () => {
 };
 
 export const getCollectionsByTeam = async (teamId: string) => {
-  return getDocuments<Collection>(
-    "collections",
-    where("team_id", "==", teamId),
-    orderBy("created_at", "desc")
-  );
+  try {
+    return await getDocuments<Collection>(
+      "collections",
+      where("team_id", "==", teamId),
+      orderBy("order", "asc"),
+      orderBy("created_at", "desc")
+    );
+  } catch (error) {
+    // Fallback to simple query if index is missing or other error
+    try {
+      return await getDocuments<Collection>(
+        "collections",
+        where("team_id", "==", teamId),
+        orderBy("created_at", "desc")
+      );
+    } catch (fallbackError) {
+      throw error;
+    }
+  }
 };
 
 export const createCollection = async (
@@ -89,9 +104,22 @@ export const createCollection = async (
 ) => {
   return createDocument<Omit<Collection, "id">>("collections", collectionId, {
     ...data,
+    order: data.order ?? Date.now(), // Default to timestamp for order if not provided
     created_at: serverTimestamp() as Timestamp,
     updated_at: serverTimestamp() as Timestamp,
   });
+};
+
+export const updateCollectionsOrder = async (
+  updates: { id: string; order: number }[]
+) => {
+  const batchUpdates = updates.map(({ id, order }) =>
+    updateDocument<Collection>("collections", id, {
+      order,
+      updated_at: serverTimestamp() as Timestamp,
+    })
+  );
+  return Promise.all(batchUpdates);
 };
 
 export const updateCollection = async (

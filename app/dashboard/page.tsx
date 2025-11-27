@@ -3,9 +3,28 @@
 import { useState, useRef, useEffect, Suspense } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryState } from "nuqs";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+  DragOverlay,
+  DragStartEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  rectSortingStrategy,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { useFirebaseAuth } from "@/lib/hooks/use-firebase-auth";
 import { useUserTeams } from "@/lib/hooks/use-team-queries";
-import { useCollections, useUpdateCollection, useDeleteCollection } from "@/lib/hooks/use-collection-queries";
+import { useCollections, useUpdateCollection, useDeleteCollection, useUpdateCollectionsOrder } from "@/lib/hooks/use-collection-queries";
 import { useDocuments, useDocument, useUpdateDocument, useDeleteDocument } from "@/lib/hooks/use-document-queries";
 import { useSettings, useUpdateSettings } from "@/lib/hooks/use-settings-queries";
 import { CreateTeamForm } from "@/lib/components/create-team-modal";
@@ -871,6 +890,55 @@ function DashboardContent() {
   );
 }
 
+function SortableCollectionItem({
+  collection,
+  onSelect,
+  selectedFont,
+}: {
+  collection: Collection;
+  onSelect: (collection: Collection) => void;
+  selectedFont?: string;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: collection.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      className="touch-none h-full"
+    >
+      <button
+        onClick={() => onSelect(collection)}
+        className="aspect-square w-full rounded-sm border border-zinc-200 bg-white p-4 text-left shadow-none transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800 flex flex-col justify-center"
+      >
+        <h3
+          className="text-6xl font-bold text-black dark:text-zinc-50 break-words w-full"
+          style={{
+            fontFamily: selectedFont ? `${selectedFont}, serif` : "serif",
+          }}
+        >
+          {collection.name || "Unnamed Collection"}
+        </h3>
+      </button>
+    </div>
+  );
+}
+
 function TeamCollectionsSection({
   teamId,
   onSelectCollection,
@@ -880,31 +948,107 @@ function TeamCollectionsSection({
   onSelectCollection: (collection: Collection) => void;
   selectedFont?: string;
 }) {
-  const { data: collections, isLoading } = useCollections(teamId);
+  const { data: collections, isLoading, error } = useCollections(teamId);
+  const updateCollectionsOrder = useUpdateCollectionsOrder();
+  const [items, setItems] = useState<Collection[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
 
-  if (isLoading || !collections || collections.length === 0) {
+  useEffect(() => {
+    console.log("TeamCollectionsSection collections update:", collections);
+    if (collections) {
+      setItems(collections);
+    }
+  }, [collections]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        delay: 250,
+        tolerance: 5,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveId(event.active.id as string);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    setActiveId(null);
+
+    if (active.id !== over?.id) {
+      setItems((items) => {
+        const oldIndex = items.findIndex((item) => item.id === active.id);
+        const newIndex = items.findIndex((item) => item.id === over?.id);
+        const newItems = arrayMove(items, oldIndex, newIndex);
+        
+        // Update order in backend
+        // We need to update the order field for all affected items
+        // A simple strategy is to re-assign order based on index
+        const updates = newItems.map((item, index) => ({
+          id: item.id,
+          order: index,
+        }));
+        
+        updateCollectionsOrder.mutate(updates);
+        
+        return newItems;
+      });
+    }
+  };
+
+  if (error) {
+    console.error("Error loading collections in component:", error);
+    return <div className="text-red-500">Error loading collections</div>;
+  }
+
+  if (isLoading) {
+    console.log("Collections loading...");
     return null;
   }
 
+  if (!items || items.length === 0) {
+    return null;
+  }
+
+  const activeItem = items.find((item) => item.id === activeId);
+
   return (
-    <>
-      {collections.map((collection) => (
-        <button
-          key={collection.id}
-          onClick={() => onSelectCollection(collection)}
-          className="aspect-square w-full rounded-sm border border-zinc-200 bg-white p-4 text-left shadow-none transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800"
-        >
-          <h3
-            className="text-6xl font-bold text-black dark:text-zinc-50"
-            style={{
-              fontFamily: selectedFont ? `${selectedFont}, serif` : "serif",
-            }}
-          >
-            {collection.name || "Unnamed Collection"}
-          </h3>
-        </button>
-      ))}
-    </>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+    >
+      <SortableContext items={items.map((c) => c.id)} strategy={rectSortingStrategy}>
+        {items.map((collection) => (
+          <SortableCollectionItem
+            key={collection.id}
+            collection={collection}
+            onSelect={onSelectCollection}
+            selectedFont={selectedFont}
+          />
+        ))}
+      </SortableContext>
+      <DragOverlay>
+        {activeId && activeItem ? (
+          <div className="aspect-square w-full rounded-sm border border-zinc-200 bg-white p-4 text-left shadow-none dark:border-zinc-800 dark:bg-zinc-900 flex flex-col justify-center">
+            <h3
+              className="text-6xl font-bold text-black dark:text-zinc-50 break-words w-full"
+              style={{
+                fontFamily: selectedFont ? `${selectedFont}, serif` : "serif",
+              }}
+            >
+              {activeItem.name || "Unnamed Collection"}
+            </h3>
+          </div>
+        ) : null}
+      </DragOverlay>
+    </DndContext>
   );
 }
 
