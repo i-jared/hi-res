@@ -4,6 +4,7 @@ import {
   getCollectionsByTeam,
   createCollection,
   updateCollection,
+  deleteCollection,
   Collection,
 } from "@/lib/firebase/collections";
 
@@ -50,6 +51,21 @@ export function useUpdateCollection() {
       return { collectionId };
     },
     onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["collections"] });
+    },
+  });
+}
+
+export function useDeleteCollection() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ collectionId, teamId }: { collectionId: string; teamId: string }) => {
+      await deleteCollection(collectionId);
+      return { collectionId, teamId };
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["collections", result.teamId] });
       queryClient.invalidateQueries({ queryKey: ["collections"] });
     },
   });

@@ -4,6 +4,7 @@ import {
   getDocumentInCollection,
   createDocumentInCollection,
   updateDocumentInCollection,
+  deleteDocumentInCollection,
   Document,
 } from "@/lib/firebase/collections";
 import { useFirebaseAuth } from "@/lib/hooks/use-firebase-auth";
@@ -87,6 +88,31 @@ export function useUpdateDocument() {
       });
       queryClient.invalidateQueries({
         queryKey: ["documents", result.collectionId],
+      });
+    },
+  });
+}
+
+export function useDeleteDocument() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      collectionId,
+      documentId,
+    }: {
+      collectionId: string;
+      documentId: string;
+    }) => {
+      await deleteDocumentInCollection(collectionId, documentId);
+      return { collectionId, documentId };
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({
+        queryKey: ["documents", result.collectionId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["document", result.collectionId, result.documentId],
       });
     },
   });

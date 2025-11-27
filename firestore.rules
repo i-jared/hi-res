@@ -8,7 +8,7 @@ service cloud.firestore {
     }
     
     function isTeamMember(teamId) {
-      return isSignedIn() && exists(/databases/$(database)/documents/teams/$(teamId)/members/$(request.auth.uid));
+      return isSignedIn() && exists(/databases/(default)/documents/teams/$(teamId)/members/$(request.auth.uid));
     }
 
     // Teams
@@ -33,7 +33,7 @@ service cloud.firestore {
           // 2. Accepting an invite
           (request.resource.data.role == 'member' &&
            request.resource.data.invite_id != null &&
-           get(/databases/$(database)/documents/teams/$(teamId)/invites/$(request.resource.data.invite_id)).data.email == request.auth.token.email)
+           get(/databases/(default)/documents/teams/$(teamId)/invites/$(request.resource.data.invite_id)).data.email == request.auth.token.email)
         );
         
         // Members can be updated/removed by team members (e.g. admin removing user)
@@ -66,7 +66,7 @@ service cloud.firestore {
       match /documents/{documentId} {
         // Helper to get team_id from parent collection
         function getCollectionTeamId() {
-          return get(/databases/$(database)/documents/collections/$(collectionId)).data.team_id;
+          return get(/databases/(default)/documents/collections/$(collectionId)).data.team_id;
         }
         
         allow read, write: if isTeamMember(getCollectionTeamId());
@@ -82,7 +82,7 @@ service cloud.firestore {
     
     // Allow querying members where user_id == auth.uid (for "My Teams" list)
     match /{path=**}/members/{memberId} {
-      allow read: if isSignedIn() && request.auth.uid == memberId;
+      allow read: if isSignedIn() && resource.data.user_id == request.auth.uid;
     }
     
     // Allow querying invites where email == auth.email (for "My Invites" list)

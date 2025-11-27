@@ -4,7 +4,7 @@ service firebase.storage {
     
     // Helper to check Firestore team membership
     function isTeamMember(teamId) {
-      return firestore.exists(/databases/(default)/documents/teams/$(teamId)/members/$(request.auth.uid));
+      return request.auth != null && firestore.exists(/databases/(default)/documents/teams/$(teamId)/members/$(request.auth.uid));
     }
 
     // Documents images (banners, content images)

@@ -5,9 +5,8 @@ import { useRouter } from "next/navigation";
 import { useQueryState } from "nuqs";
 import { useFirebaseAuth } from "@/lib/hooks/use-firebase-auth";
 import { useUserTeams } from "@/lib/hooks/use-team-queries";
-import { useCollections } from "@/lib/hooks/use-collection-queries";
-import { useDocuments, useDocument, useUpdateDocument } from "@/lib/hooks/use-document-queries";
-import { useUpdateCollection } from "@/lib/hooks/use-collection-queries";
+import { useCollections, useUpdateCollection, useDeleteCollection } from "@/lib/hooks/use-collection-queries";
+import { useDocuments, useDocument, useUpdateDocument, useDeleteDocument } from "@/lib/hooks/use-document-queries";
 import { useSettings, useUpdateSettings } from "@/lib/hooks/use-settings-queries";
 import { CreateTeamForm } from "@/lib/components/create-team-modal";
 import { CreateCollectionPopup } from "@/lib/components/create-collection-popup";
@@ -76,10 +75,14 @@ function DashboardContent() {
   const [isUploadingBanner, setIsUploadingBanner] = useState(false);
   const updateDocumentMutation = useUpdateDocument();
   const updateCollectionMutation = useUpdateCollection();
+  const deleteDocumentMutation = useDeleteDocument();
+  const deleteCollectionMutation = useDeleteCollection();
   const { data: settings } = useSettings(user?.uid);
   const updateSettings = useUpdateSettings();
   const collectionKebabMenuRef = useRef<HTMLDivElement>(null);
   const collectionKebabButtonRef = useRef<HTMLButtonElement>(null);
+  const [showDeleteDocumentModal, setShowDeleteDocumentModal] = useState(false);
+  const [showDeleteCollectionModal, setShowDeleteCollectionModal] = useState(false);
 
   // Use settings.current_team_id as the source of truth, fallback to first team
   const selectedTeamId = settings?.current_team_id || (teams && teams.length > 0 ? teams[0].id : null);
@@ -239,6 +242,39 @@ function DashboardContent() {
     }
   };
 
+  const handleDeleteDocument = async () => {
+    if (!collectionId || !documentId) return;
+    
+    try {
+      await deleteDocumentMutation.mutateAsync({
+        collectionId: collectionId,
+        documentId: documentId,
+      });
+      setShowDeleteDocumentModal(false);
+      setShowKebabMenu(false);
+      setDocumentId(null);
+    } catch (error) {
+      console.error("Failed to delete document:", error);
+    }
+  };
+
+  const handleDeleteCollection = async () => {
+    if (!collectionId || !selectedTeamId) return;
+    
+    try {
+      await deleteCollectionMutation.mutateAsync({
+        collectionId: collectionId,
+        teamId: selectedTeamId,
+      });
+      setShowDeleteCollectionModal(false);
+      setShowCollectionKebabMenu(false);
+      setCollectionId(null);
+      setDocumentId(null);
+    } catch (error) {
+      console.error("Failed to delete collection:", error);
+    }
+  };
+
   if (loading || teamsLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
@@ -333,6 +369,16 @@ function DashboardContent() {
                       >
                         {documentData?.banner_image ? "Edit Banner" : "Add Banner"}
                       </button>
+                      <div className="border-t border-white/20"></div>
+                      <button
+                        onClick={() => {
+                          setShowDeleteDocumentModal(true);
+                          setShowKebabMenu(false);
+                        }}
+                        className="w-full px-4 py-2 text-left text-sm text-red-400 hover:bg-white/10"
+                      >
+                        Delete Document
+                      </button>
                     </div>
                   )}
                 </div>
@@ -404,6 +450,16 @@ function DashboardContent() {
                         className="w-full px-4 py-2 text-left text-sm text-white hover:bg-white/10"
                       >
                         Change Name
+                      </button>
+                      <div className="border-t border-white/20"></div>
+                      <button
+                        onClick={() => {
+                          setShowDeleteCollectionModal(true);
+                          setShowCollectionKebabMenu(false);
+                        }}
+                        className="w-full px-4 py-2 text-left text-sm text-red-400 hover:bg-white/10"
+                      >
+                        Delete Collection
                       </button>
                     </div>
                   )}
@@ -757,6 +813,58 @@ function DashboardContent() {
             userId={user.uid}
             currentFont={settings?.google_font}
           />
+        )}
+
+        {showDeleteDocumentModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <div className="w-96 rounded-sm border border-white/20 bg-black p-6">
+              <h3 className="mb-4 text-lg font-semibold text-white">Delete Document</h3>
+              <p className="mb-6 text-sm text-zinc-400">
+                Are you sure you want to delete &ldquo;{documentData?.title || "this document"}&rdquo;? This action cannot be undone.
+              </p>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setShowDeleteDocumentModal(false)}
+                  className="rounded-sm px-4 py-2 text-sm text-white hover:bg-white/10"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDeleteDocument}
+                  disabled={deleteDocumentMutation.isPending}
+                  className="rounded-sm bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                >
+                  {deleteDocumentMutation.isPending ? "Deleting..." : "Delete"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showDeleteCollectionModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <div className="w-96 rounded-sm border border-white/20 bg-black p-6">
+              <h3 className="mb-4 text-lg font-semibold text-white">Delete Collection</h3>
+              <p className="mb-6 text-sm text-zinc-400">
+                Are you sure you want to delete &ldquo;{selectedCollection?.name || "this collection"}&rdquo;? This will also delete all documents in this collection. This action cannot be undone.
+              </p>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setShowDeleteCollectionModal(false)}
+                  className="rounded-sm px-4 py-2 text-sm text-white hover:bg-white/10"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDeleteCollection}
+                  disabled={deleteCollectionMutation.isPending}
+                  className="rounded-sm bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                >
+                  {deleteCollectionMutation.isPending ? "Deleting..." : "Delete"}
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>
