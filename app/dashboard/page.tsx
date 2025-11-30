@@ -35,6 +35,7 @@ import { FontSelectorModal } from "@/lib/components/font-selector-modal";
 import { NotificationBell } from "@/lib/components/notification-bell";
 import { Collection, Document, getCollection } from "@/lib/firebase/collections";
 import { uploadFile } from "@/lib/firebase/storage";
+import { logout } from "@/lib/firebase/auth";
 import { useQuery } from "@tanstack/react-query";
 
 interface SelectedDocument {
@@ -334,6 +335,13 @@ function DashboardContent() {
     }
   }, [settings?.google_font]);
 
+  // Redirect to login if user is not authenticated (after loading completes)
+  useEffect(() => {
+    if (!loading && !user) {
+      router.push("/auth/login");
+    }
+  }, [loading, user, router]);
+
   const handleUpdateTitle = async () => {
     if (!titleValue.trim() || !collectionId || !documentId) return;
     
@@ -450,7 +458,6 @@ function DashboardContent() {
   }
 
   if (!user) {
-    router.push("/auth/login");
     return null;
   }
 
@@ -684,7 +691,7 @@ function DashboardContent() {
                 {showSettingsDropdown && (
                   <div
                     ref={dropdownRef}
-                    className="absolute right-0 top-full mt-2 w-40 rounded-sm border border-zinc-200 bg-white py-1 dark:border-zinc-800 dark:bg-black"
+                    className="absolute right-0 top-full z-50 mt-2 w-40 rounded-sm border border-zinc-200 bg-white py-1 dark:border-zinc-800 dark:bg-black"
                   >
                     <button
                       onClick={() => {
@@ -703,6 +710,17 @@ function DashboardContent() {
                       className="block w-full px-4 py-2 text-left text-sm text-black hover:bg-zinc-50 dark:text-zinc-50 dark:hover:bg-zinc-900"
                     >
                       Font
+                    </button>
+                    <div className="border-t border-zinc-200 dark:border-zinc-800"></div>
+                    <button
+                      onClick={async () => {
+                        setShowSettingsDropdown(false);
+                        await logout();
+                        router.push("/auth/login");
+                      }}
+                      className="block w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-zinc-50 dark:text-red-400 dark:hover:bg-zinc-900"
+                    >
+                      Log out
                     </button>
                   </div>
                 )}

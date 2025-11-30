@@ -5,11 +5,12 @@ import { useCreateTeam } from "@/lib/hooks/use-team-queries";
 
 interface CreateTeamFormProps {
   userId: string;
+  userEmail?: string | null;
   onCancel: () => void;
   onSuccess?: (teamId: string) => void;
 }
 
-export function CreateTeamForm({ userId, onCancel, onSuccess }: CreateTeamFormProps) {
+export function CreateTeamForm({ userId, userEmail, onCancel, onSuccess }: CreateTeamFormProps) {
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const createTeamMutation = useCreateTeam();
@@ -24,7 +25,11 @@ export function CreateTeamForm({ userId, onCancel, onSuccess }: CreateTeamFormPr
     }
 
     try {
-      const teamId = await createTeamMutation.mutateAsync({ name: name.trim(), userId });
+      const teamId = await createTeamMutation.mutateAsync({ 
+        name: name.trim(), 
+        userId,
+        email: userEmail || undefined,
+      });
       setName("");
       if (onSuccess) {
         onSuccess(teamId);

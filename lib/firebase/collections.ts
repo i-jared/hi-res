@@ -55,6 +55,7 @@ export interface TeamMember {
   id: string;
   team_id: string;
   user_id: string;
+  email?: string;
   role?: string; // e.g., "owner", "admin", "member"
   joined_at: Timestamp;
   invite_id?: string;
@@ -63,6 +64,7 @@ export interface TeamMember {
 export interface TeamInvite {
   id: string;
   team_id: string;
+  team_name: string; // Denormalized for display without needing team read access
   email: string;
   invited_by: string; // User ID of the person who sent the invite
   status: "pending" | "accepted" | "rejected";

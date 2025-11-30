@@ -11,6 +11,8 @@ import {
   subscribeToTeamInvites,
   createTeamInvite,
   updateTeamInvite,
+  deleteTeamInvite,
+  removeTeamMember,
 } from "@/lib/firebase/collections";
 import { collectionGroup, query, where, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase/config";
@@ -119,14 +121,17 @@ export function useCreateTeam() {
     mutationFn: async ({
       name,
       userId,
+      email,
     }: {
       name: string;
       userId: string;
+      email?: string;
     }) => {
       const teamId = crypto.randomUUID();
       await createTeam(teamId, { name });
       await addTeamMember(teamId, userId, {
         user_id: userId,
+        email,
         role: "owner",
       });
       return teamId;
@@ -159,7 +164,7 @@ export function useTeamInvites(teamId: string | null) {
 }
 
 export function useMyInvites(email: string | undefined | null) {
-  const [invites, setInvites] = useState<(TeamInvite & { teamName?: string })[]>([]);
+  const [invites, setInvites] = useState<TeamInvite[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -179,22 +184,15 @@ export function useMyInvites(email: string | undefined | null) {
 
       unsubscribe = onSnapshot(
         invitesQuery,
-        async (snapshot) => {
+        (snapshot) => {
           if (!isMounted) return;
 
+          // team_name is now stored directly in the invite document
           const invitesData = snapshot.docs.map(
             (doc) => ({ id: doc.id, ...doc.data() } as TeamInvite)
           );
 
-          // Fetch team names
-          const invitesWithTeams = await Promise.all(
-            invitesData.map(async (invite) => {
-              const team = await getTeam(invite.team_id);
-              return { ...invite, teamName: team?.name };
-            })
-          );
-
-          setInvites(invitesWithTeams);
+          setInvites(invitesData);
           setIsLoading(false);
         },
         (error) => {
@@ -232,16 +230,19 @@ export function useCreateInvite() {
   return useMutation({
     mutationFn: async ({
       teamId,
+      teamName,
       email,
       invitedBy,
     }: {
       teamId: string;
+      teamName: string;
       email: string;
       invitedBy: string;
     }) => {
       const inviteId = crypto.randomUUID();
       await createTeamInvite(teamId, inviteId, {
         email,
+        team_name: teamName,
         invited_by: invitedBy,
       });
       return inviteId;
@@ -255,14 +256,17 @@ export function useAcceptInvite() {
       inviteId,
       teamId,
       userId,
+      email,
     }: {
       inviteId: string;
       teamId: string;
       userId: string;
+      email: string;
     }) => {
       // 1. Add user to team
       await addTeamMember(teamId, userId, {
         user_id: userId,
+        email,
         role: "member",
         invite_id: inviteId,
       });
@@ -287,6 +291,34 @@ export function useRejectInvite() {
       await updateTeamInvite(teamId, inviteId, {
         status: "rejected",
       });
+    },
+  });
+}
+
+export function useDeleteInvite() {
+  return useMutation({
+    mutationFn: async ({
+      inviteId,
+      teamId,
+    }: {
+      inviteId: string;
+      teamId: string;
+    }) => {
+      await deleteTeamInvite(teamId, inviteId);
+    },
+  });
+}
+
+export function useRemoveMember() {
+  return useMutation({
+    mutationFn: async ({
+      memberId,
+      teamId,
+    }: {
+      memberId: string;
+      teamId: string;
+    }) => {
+      await removeTeamMember(teamId, memberId);
     },
   });
 }

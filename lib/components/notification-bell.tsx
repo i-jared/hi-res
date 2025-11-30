@@ -85,7 +85,7 @@ export function NotificationBell() {
                 <p className="text-sm text-zinc-600 dark:text-zinc-400">
                   Invited to join{" "}
                   <span className="font-medium text-black dark:text-zinc-50">
-                    {invite.teamName || "a team"}
+                    {invite.team_name || "a team"}
                   </span>
                 </p>
                 <div className="flex gap-2">
@@ -95,6 +95,7 @@ export function NotificationBell() {
                         inviteId: invite.id,
                         teamId: invite.team_id,
                         userId: user.uid,
+                        email: invite.email,
                       });
                     }}
                     disabled={acceptInvite.isPending}
