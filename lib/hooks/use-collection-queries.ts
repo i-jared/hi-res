@@ -46,7 +46,7 @@ export function useUpdateCollection() {
       data,
     }: {
       collectionId: string;
-      data: Partial<Pick<Collection, "name">>;
+      data: Partial<Pick<Collection, "name" | "banner_image">>;
     }) => {
       await updateCollection(collectionId, data);
       return { collectionId };

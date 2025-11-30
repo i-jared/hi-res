@@ -42,6 +42,128 @@ interface SelectedDocument {
   title: string;
 }
 
+interface DraggableBannerProps {
+  src: string;
+  alt: string;
+  containerClassName: string;
+  imageClassName?: string;
+  position?: string; // CSS object-position (e.g., "50% 50%")
+  onPositionChange?: (position: string) => void;
+  disabled?: boolean;
+}
+
+function DraggableBanner({
+  src,
+  alt,
+  containerClassName,
+  imageClassName = "",
+  position = "50% 50%",
+  onPositionChange,
+  disabled = false,
+}: DraggableBannerProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [currentPosition, setCurrentPosition] = useState(position);
+  const dragStartRef = useRef<{ x: number; y: number; startX: number; startY: number } | null>(null);
+  const hasMovedRef = useRef(false);
+
+  useEffect(() => {
+    setCurrentPosition(position);
+  }, [position]);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (disabled || !onPositionChange || !containerRef.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+    
+    hasMovedRef.current = false;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    
+    // Parse current position
+    const [currentX, currentY] = currentPosition.split(" ").map((p) => parseFloat(p));
+    const startPosX = currentX || 50;
+    const startPosY = currentY || 50;
+    
+    dragStartRef.current = {
+      x: startX,
+      y: startY,
+      startX: startPosX,
+      startY: startPosY,
+    };
+    
+    setIsDragging(true);
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      if (!dragStartRef.current || !containerRef.current) return;
+      
+      const dx = Math.abs(moveEvent.clientX - dragStartRef.current.x);
+      const dy = Math.abs(moveEvent.clientY - dragStartRef.current.y);
+      
+      if (dx > 5 || dy > 5) {
+        hasMovedRef.current = true;
+      }
+      
+      const rect = containerRef.current.getBoundingClientRect();
+      const deltaX = moveEvent.clientX - dragStartRef.current.x;
+      const deltaY = moveEvent.clientY - dragStartRef.current.y;
+      
+      const deltaXPercent = (deltaX / rect.width) * 100;
+      const deltaYPercent = (deltaY / rect.height) * 100;
+      
+      const newX = Math.max(0, Math.min(100, dragStartRef.current.startX + deltaXPercent));
+      const newY = Math.max(0, Math.min(100, dragStartRef.current.startY + deltaYPercent));
+      
+      const newPosition = `${newX}% ${newY}%`;
+      setCurrentPosition(newPosition);
+      // Call onPositionChange during drag for live preview if handled by parent, 
+      // or just update local state. 
+      // User wants "Save" button, so updating parent state (temp) is fine.
+      onPositionChange(newPosition);
+    };
+
+    const handleMouseUp = (upEvent: MouseEvent) => {
+      if (hasMovedRef.current) {
+        upEvent.preventDefault();
+        upEvent.stopPropagation();
+      }
+      
+      dragStartRef.current = null;
+      setIsDragging(false);
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+  };
+
+  return (
+    <div
+      ref={containerRef}
+      className={containerClassName}
+      onMouseDown={handleMouseDown}
+      onClick={(e) => {
+        if (hasMovedRef.current) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }}
+      style={{ cursor: disabled ? "default" : isDragging ? "grabbing" : "grab" }}
+    >
+      <img
+        src={src}
+        alt={alt}
+        className={imageClassName}
+        style={{
+          objectPosition: currentPosition,
+        }}
+        draggable={false}
+      />
+    </div>
+  );
+}
+
 function DashboardContent() {
   const router = useRouter();
   const { user, loading } = useFirebaseAuth();
@@ -88,10 +210,14 @@ function DashboardContent() {
   const [showBannerModal, setShowBannerModal] = useState(false);
   const [showCollectionKebabMenu, setShowCollectionKebabMenu] = useState(false);
   const [showCollectionNameModal, setShowCollectionNameModal] = useState(false);
+  const [showCollectionBannerModal, setShowCollectionBannerModal] = useState(false);
   const [showFontSelector, setShowFontSelector] = useState(false);
   const [titleValue, setTitleValue] = useState("");
   const [collectionNameValue, setCollectionNameValue] = useState("");
   const [isUploadingBanner, setIsUploadingBanner] = useState(false);
+  const [isUploadingCollectionBanner, setIsUploadingCollectionBanner] = useState(false);
+  const [isRepositioningBanner, setIsRepositioningBanner] = useState(false);
+  const [tempBannerPosition, setTempBannerPosition] = useState<string | null>(null);
   const updateDocumentMutation = useUpdateDocument();
   const updateCollectionMutation = useUpdateCollection();
   const deleteDocumentMutation = useDeleteDocument();
@@ -243,6 +369,27 @@ function DashboardContent() {
       console.error("Failed to upload banner:", error);
     } finally {
       setIsUploadingBanner(false);
+    }
+  };
+
+  const handleCollectionBannerUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !collectionId) return;
+
+    setIsUploadingCollectionBanner(true);
+    try {
+      const path = `collections/${collectionId}/banner/${crypto.randomUUID()}`;
+      const url = await uploadFile(path, file);
+      await updateCollectionMutation.mutateAsync({
+        collectionId: collectionId,
+        data: { banner_image: url },
+      });
+      setShowCollectionBannerModal(false);
+      setShowCollectionKebabMenu(false);
+    } catch (error) {
+      console.error("Failed to upload collection banner:", error);
+    } finally {
+      setIsUploadingCollectionBanner(false);
     }
   };
 
@@ -470,6 +617,15 @@ function DashboardContent() {
                       >
                         Change Name
                       </button>
+                      <button
+                        onClick={() => {
+                          setShowCollectionBannerModal(true);
+                          setShowCollectionKebabMenu(false);
+                        }}
+                        className="w-full px-4 py-2 text-left text-sm text-white hover:bg-white/10"
+                      >
+                        {selectedCollection?.banner_image ? "Edit Banner" : "Add Banner"}
+                      </button>
                       <div className="border-t border-white/20"></div>
                       <button
                         onClick={() => {
@@ -651,12 +807,47 @@ function DashboardContent() {
             ) : documentData && selectedCollection ? (
               <div className="mt-8">
                 {documentData.banner_image && (
-                  <div className="mb-8 w-full overflow-hidden rounded-sm">
-                    <img
+                  <div className="relative mb-8 w-full h-[250px] overflow-hidden rounded-sm group">
+                    <DraggableBanner
                       src={documentData.banner_image}
                       alt="Document banner"
-                      className="w-full object-cover"
+                      containerClassName="w-full h-full"
+                      imageClassName="w-full h-full object-cover"
+                      position={isRepositioningBanner ? (tempBannerPosition || "50% 50%") : (documentData.banner_position_page || "50% 50%")}
+                      onPositionChange={(pos) => setTempBannerPosition(pos)}
+                      disabled={!isRepositioningBanner}
                     />
+                    {isRepositioningBanner && (
+                      <div className="absolute bottom-4 right-4 flex gap-2">
+                        <button
+                          onClick={() => {
+                            setIsRepositioningBanner(false);
+                            setTempBannerPosition(null);
+                          }}
+                          className="rounded-sm bg-black/50 px-4 py-2 text-sm text-white backdrop-blur-sm hover:bg-black/70"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (!collectionId || !documentId || !tempBannerPosition) return;
+                            try {
+                              await updateDocumentMutation.mutateAsync({
+                                collectionId,
+                                documentId,
+                                data: { banner_position_page: tempBannerPosition },
+                              });
+                              setIsRepositioningBanner(false);
+                            } catch (error) {
+                              console.error("Failed to save banner position:", error);
+                            }
+                          }}
+                          className="rounded-sm bg-white px-4 py-2 text-sm font-medium text-black hover:bg-gray-100"
+                        >
+                          Save Position
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
                 <DocumentEditor
@@ -743,24 +934,36 @@ function DashboardContent() {
                     alt="Banner"
                     className="mb-2 max-h-48 w-full rounded-sm object-cover"
                   />
-                  <button
-                    onClick={async () => {
-                      if (!collectionId || !documentId) return;
-                      try {
-                        await updateDocumentMutation.mutateAsync({
-                          collectionId: collectionId,
-                          documentId: documentId,
-                          data: { banner_image: "" },
-                        });
+                  <div className="flex flex-col gap-2">
+                    <button
+                      onClick={() => {
+                        setTempBannerPosition(documentData.banner_position_page || "50% 50%");
+                        setIsRepositioningBanner(true);
                         setShowBannerModal(false);
-                      } catch (error) {
-                        console.error("Failed to remove banner:", error);
-                      }
-                    }}
-                    className="text-sm text-red-400 hover:text-red-300"
-                  >
-                    Remove Banner
-                  </button>
+                      }}
+                      className="w-full rounded-sm border border-white/20 bg-black px-4 py-2 text-sm text-white hover:bg-white/10"
+                    >
+                      Reposition
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!collectionId || !documentId) return;
+                        try {
+                          await updateDocumentMutation.mutateAsync({
+                            collectionId: collectionId,
+                            documentId: documentId,
+                            data: { banner_image: "" },
+                          });
+                          setShowBannerModal(false);
+                        } catch (error) {
+                          console.error("Failed to remove banner:", error);
+                        }
+                      }}
+                      className="text-sm text-red-400 hover:text-red-300"
+                    >
+                      Remove Banner
+                    </button>
+                  </div>
                 </div>
               )}
               <label className="mb-4 block">
@@ -819,6 +1022,62 @@ function DashboardContent() {
                   className="rounded-sm bg-white px-4 py-2 text-sm font-medium text-black hover:bg-white/90 disabled:opacity-50"
                 >
                   {updateCollectionMutation.isPending ? "Saving..." : "Save"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showCollectionBannerModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <div className="w-96 rounded-sm border border-white/20 bg-black p-6">
+              <h3 className="mb-4 text-lg font-semibold text-white">
+                {selectedCollection?.banner_image ? "Edit Banner" : "Add Banner"}
+              </h3>
+              {selectedCollection?.banner_image && (
+                <div className="mb-4">
+                  <img
+                    src={selectedCollection.banner_image}
+                    alt="Banner"
+                    className="mb-2 max-h-48 w-full rounded-sm object-cover"
+                  />
+                  <button
+                    onClick={async () => {
+                      if (!collectionId) return;
+                      try {
+                        await updateCollectionMutation.mutateAsync({
+                          collectionId: collectionId,
+                          data: { banner_image: "" },
+                        });
+                        setShowCollectionBannerModal(false);
+                      } catch (error) {
+                        console.error("Failed to remove banner:", error);
+                      }
+                    }}
+                    className="text-sm text-red-400 hover:text-red-300"
+                  >
+                    Remove Banner
+                  </button>
+                </div>
+              )}
+              <label className="mb-4 block">
+                <div className="cursor-pointer rounded-sm border border-white/20 bg-black px-4 py-2 text-center text-sm text-white hover:bg-white/10">
+                  {isUploadingCollectionBanner ? "Uploading..." : "Choose Image"}
+                </div>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleCollectionBannerUpload}
+                  disabled={isUploadingCollectionBanner}
+                  className="hidden"
+                />
+              </label>
+              <div className="flex justify-end">
+                <button
+                  onClick={() => setShowCollectionBannerModal(false)}
+                  className="rounded-sm px-4 py-2 text-sm text-white hover:bg-white/10"
+                >
+                  Close
                 </button>
               </div>
             </div>
@@ -924,16 +1183,40 @@ function SortableCollectionItem({
     >
       <button
         onClick={() => onSelect(collection)}
-        className="aspect-square w-full rounded-sm border border-zinc-200 bg-white p-4 text-left shadow-none transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800 flex flex-col justify-center"
+        className="aspect-square w-full rounded-sm border border-zinc-200 bg-white overflow-hidden relative shadow-none transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800"
       >
-        <h3
-          className="text-6xl font-bold text-black dark:text-zinc-50 break-words w-full"
-          style={{
-            fontFamily: selectedFont ? `${selectedFont}, serif` : "serif",
-          }}
-        >
-          {collection.name || "Unnamed Collection"}
-        </h3>
+        {collection.banner_image ? (
+          <>
+            <img
+              src={collection.banner_image}
+              alt={collection.name || "Collection banner"}
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+            <div className="absolute inset-0 flex items-center justify-center p-4">
+              <div className="bg-black px-6 py-4">
+                <h3
+                  className="text-6xl font-bold text-white break-words text-center"
+                  style={{
+                    fontFamily: selectedFont ? `${selectedFont}, serif` : "serif",
+                  }}
+                >
+                  {collection.name || "Unnamed Collection"}
+                </h3>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="flex flex-col justify-center h-full p-4">
+            <h3
+              className="text-6xl font-bold text-black dark:text-zinc-50 break-words w-full"
+              style={{
+                fontFamily: selectedFont ? `${selectedFont}, serif` : "serif",
+              }}
+            >
+              {collection.name || "Unnamed Collection"}
+            </h3>
+          </div>
+        )}
       </button>
     </div>
   );
@@ -1036,15 +1319,39 @@ function TeamCollectionsSection({
       </SortableContext>
       <DragOverlay>
         {activeId && activeItem ? (
-          <div className="aspect-square w-full rounded-sm border border-zinc-200 bg-white p-4 text-left shadow-none dark:border-zinc-800 dark:bg-zinc-900 flex flex-col justify-center">
-            <h3
-              className="text-6xl font-bold text-black dark:text-zinc-50 break-words w-full"
-              style={{
-                fontFamily: selectedFont ? `${selectedFont}, serif` : "serif",
-              }}
-            >
-              {activeItem.name || "Unnamed Collection"}
-            </h3>
+          <div className="aspect-square w-full rounded-sm border border-zinc-200 bg-white overflow-hidden relative shadow-none dark:border-zinc-800 dark:bg-zinc-900">
+            {activeItem.banner_image ? (
+              <>
+                <img
+                  src={activeItem.banner_image}
+                  alt={activeItem.name || "Collection banner"}
+                  className="absolute inset-0 w-full h-full object-cover"
+                />
+                <div className="absolute inset-0 flex items-center justify-center p-4">
+                  <div className="bg-black px-6 py-4">
+                    <h3
+                      className="text-6xl font-bold text-white break-words text-center"
+                      style={{
+                        fontFamily: selectedFont ? `${selectedFont}, serif` : "serif",
+                      }}
+                    >
+                      {activeItem.name || "Unnamed Collection"}
+                    </h3>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="flex flex-col justify-center h-full p-4">
+                <h3
+                  className="text-6xl font-bold text-black dark:text-zinc-50 break-words w-full"
+                  style={{
+                    fontFamily: selectedFont ? `${selectedFont}, serif` : "serif",
+                  }}
+                >
+                  {activeItem.name || "Unnamed Collection"}
+                </h3>
+              </div>
+            )}
           </div>
         ) : null}
       </DragOverlay>
@@ -1062,6 +1369,29 @@ function CollectionDocumentsSection({
   selectedFont?: string;
 }) {
   const { data: documents, isLoading } = useDocuments(collectionId);
+  const updateDocumentMutation = useUpdateDocument();
+  const [repositioningDocId, setRepositioningDocId] = useState<string | null>(null);
+  const [tempPosition, setTempPosition] = useState<string | null>(null);
+  const [activeKebabId, setActiveKebabId] = useState<string | null>(null);
+  const kebabMenuRef = useRef<HTMLDivElement>(null);
+  const kebabButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        activeKebabId &&
+        kebabMenuRef.current &&
+        kebabButtonRef.current &&
+        !kebabMenuRef.current.contains(event.target as Node) &&
+        !kebabButtonRef.current.contains(event.target as Node)
+      ) {
+        setActiveKebabId(null);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [activeKebabId]);
 
   if (isLoading) {
     return <div>Loading documents...</div>;
@@ -1079,31 +1409,150 @@ function CollectionDocumentsSection({
 
   return (
     <div className="mt-8 grid grid-cols-1 gap-8 sm:grid-cols-2">
-      {documents.map((doc) => (
-        <button
-          key={doc.id}
-          onClick={() => onSelectDocument(doc)}
-          className="aspect-square w-full rounded-sm border border-zinc-200 bg-white p-4 text-left shadow-none transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800"
-        >
-          {doc.banner_image && (
-            <div className="mb-3 h-32 w-full overflow-hidden rounded-sm">
-              <img
-                src={doc.banner_image}
-                alt={doc.title || "Document banner"}
-                className="h-full w-full object-cover"
-              />
-            </div>
-          )}
-          <h3
-            className="text-6xl font-bold text-black dark:text-zinc-50"
-            style={{
-              fontFamily: selectedFont ? `${selectedFont}, serif` : "serif",
-            }}
-          >
-            {doc.title || "Untitled"}
-          </h3>
-        </button>
-      ))}
+      {documents.map((doc) => {
+        const isRepositioning = repositioningDocId === doc.id;
+        
+        return (
+          <div key={doc.id} className="relative aspect-square w-full group">
+            <button
+              onClick={() => !isRepositioning && onSelectDocument(doc)}
+              className="h-full w-full rounded-sm border border-zinc-200 bg-white overflow-hidden relative shadow-none transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+            >
+              {doc.banner_image ? (
+                <>
+                  {isRepositioning ? (
+                    <DraggableBanner
+                      src={doc.banner_image}
+                      alt={doc.title || "Document banner"}
+                      containerClassName="absolute inset-0 w-full h-full"
+                      imageClassName="w-full h-full object-cover"
+                      position={tempPosition || doc.banner_position_grid || "50% 50%"}
+                      onPositionChange={(pos) => setTempPosition(pos)}
+                    />
+                  ) : (
+                    <img
+                      src={doc.banner_image}
+                      alt={doc.title || "Document banner"}
+                      className="absolute inset-0 w-full h-full object-cover"
+                      style={{
+                        objectPosition: doc.banner_position_grid || "50% 50%",
+                      }}
+                    />
+                  )}
+                  <div className={`absolute inset-0 flex items-center justify-center p-4 ${isRepositioning ? 'pointer-events-none opacity-50' : ''}`}>
+                    <div className="bg-black px-6 py-4">
+                      <h3
+                        className="text-6xl font-bold text-white break-words text-center"
+                        style={{
+                          fontFamily: selectedFont ? `${selectedFont}, serif` : "serif",
+                        }}
+                      >
+                        {doc.title || "Untitled"}
+                      </h3>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="flex flex-col justify-center h-full p-4">
+                  <h3
+                    className="text-6xl font-bold text-black dark:text-zinc-50 break-words w-full"
+                    style={{
+                      fontFamily: selectedFont ? `${selectedFont}, serif` : "serif",
+                    }}
+                  >
+                    {doc.title || "Untitled"}
+                  </h3>
+                </div>
+              )}
+            </button>
+
+            {/* Kebab Menu for Documents with Banners */}
+            {doc.banner_image && !isRepositioning && (
+              <div className="absolute top-2 right-2 z-10 opacity-0 transition-opacity group-hover:opacity-100">
+                <div className="relative">
+                  <button
+                    ref={activeKebabId === doc.id ? kebabButtonRef : undefined}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveKebabId(activeKebabId === doc.id ? null : doc.id);
+                    }}
+                    className="flex h-8 w-8 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm hover:bg-black/70"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth={2}
+                      stroke="currentColor"
+                      className="h-5 w-5"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z"
+                      />
+                    </svg>
+                  </button>
+                  {activeKebabId === doc.id && (
+                    <div
+                      ref={kebabMenuRef}
+                      className="absolute right-0 top-full z-50 mt-1 w-32 rounded-sm border border-white/20 bg-black shadow-xl"
+                    >
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRepositioningDocId(doc.id);
+                          setTempPosition(doc.banner_position_grid || "50% 50%");
+                          setActiveKebabId(null);
+                        }}
+                        className="w-full px-4 py-2 text-left text-sm text-white hover:bg-white/10"
+                      >
+                        Reposition
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Save/Cancel Controls for Repositioning */}
+            {isRepositioning && (
+              <div className="absolute bottom-4 right-4 z-20 flex gap-2">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setRepositioningDocId(null);
+                    setTempPosition(null);
+                  }}
+                  className="rounded-sm bg-black/50 px-3 py-1.5 text-sm text-white backdrop-blur-sm hover:bg-black/70"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    if (!tempPosition) return;
+                    try {
+                      await updateDocumentMutation.mutateAsync({
+                        collectionId,
+                        documentId: doc.id,
+                        data: { banner_position_grid: tempPosition },
+                      });
+                      setRepositioningDocId(null);
+                      setTempPosition(null);
+                    } catch (error) {
+                      console.error("Failed to save banner position:", error);
+                    }
+                  }}
+                  className="rounded-sm bg-white px-3 py-1.5 text-sm font-medium text-black hover:bg-gray-100"
+                >
+                  Save
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

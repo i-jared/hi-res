@@ -7,6 +7,14 @@ service firebase.storage {
       return request.auth != null && firestore.exists(/databases/(default)/documents/teams/$(teamId)/members/$(request.auth.uid));
     }
 
+    // Collection banners
+    // Path: collections/{collectionId}/banner/...
+    match /collections/{collectionId}/banner/{allPaths=**} {
+      allow read, write: if isTeamMember(
+        firestore.get(/databases/(default)/documents/collections/$(collectionId)).data.team_id
+      );
+    }
+    
     // Documents images (banners, content images)
     // Path: collections/{collectionId}/documents/{documentId}/...
     match /collections/{collectionId}/documents/{documentId}/{allPaths=**} {

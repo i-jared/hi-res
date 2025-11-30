@@ -77,7 +77,7 @@ export function useUpdateDocument() {
     }: {
       collectionId: string;
       documentId: string;
-      data: Partial<Pick<Document, "title" | "content" | "banner_image">>;
+      data: Partial<Pick<Document, "title" | "content" | "banner_image" | "banner_position_grid" | "banner_position_page">>;
     }) => {
       await updateDocumentInCollection(collectionId, documentId, data);
       return { collectionId, documentId };

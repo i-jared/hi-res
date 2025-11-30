@@ -15,6 +15,7 @@ export interface Collection {
   id: string;
   name?: string;
   team_id: string;
+  banner_image?: string; // Path to image in Firebase Storage
   order?: number;
   created_at?: Timestamp;
   updated_at?: Timestamp;
@@ -25,6 +26,8 @@ export interface Document {
   collection_id: string;
   team_id?: string;
   banner_image: string; // Path to image in Firebase Storage
+  banner_position_grid?: string; // CSS object-position for grid view (e.g., "50% 50%")
+  banner_position_page?: string; // CSS object-position for page view (e.g., "50% 50%")
   title: string;
   author: string;
   created_at: Timestamp;
