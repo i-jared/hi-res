@@ -1197,7 +1197,7 @@ function SortableCollectionItem({
       style={style}
       {...attributes}
       {...listeners}
-      className="touch-none h-full"
+      className="h-full"
     >
       <button
         onClick={() => onSelect(collection)}
@@ -1213,7 +1213,7 @@ function SortableCollectionItem({
             <div className="absolute inset-0 flex items-center justify-center p-4">
               <div className="bg-black px-6 py-4">
                 <h3
-                  className="text-6xl font-bold text-white break-words text-center"
+                  className="text-3xl sm:text-4xl md:text-6xl font-bold text-white break-words text-center"
                   style={{
                     fontFamily: selectedFont ? `${selectedFont}, serif` : "serif",
                   }}
@@ -1226,7 +1226,7 @@ function SortableCollectionItem({
         ) : (
           <div className="flex flex-col justify-center h-full p-4">
             <h3
-              className="text-6xl font-bold text-black dark:text-zinc-50 break-words w-full"
+              className="text-3xl sm:text-4xl md:text-6xl font-bold text-black dark:text-zinc-50 break-words w-full"
               style={{
                 fontFamily: selectedFont ? `${selectedFont}, serif` : "serif",
               }}
@@ -1348,7 +1348,7 @@ function TeamCollectionsSection({
                 <div className="absolute inset-0 flex items-center justify-center p-4">
                   <div className="bg-black px-6 py-4">
                     <h3
-                      className="text-6xl font-bold text-white break-words text-center"
+                      className="text-3xl sm:text-4xl md:text-6xl font-bold text-white break-words text-center"
                       style={{
                         fontFamily: selectedFont ? `${selectedFont}, serif` : "serif",
                       }}
@@ -1361,7 +1361,7 @@ function TeamCollectionsSection({
             ) : (
               <div className="flex flex-col justify-center h-full p-4">
                 <h3
-                  className="text-6xl font-bold text-black dark:text-zinc-50 break-words w-full"
+                  className="text-3xl sm:text-4xl md:text-6xl font-bold text-black dark:text-zinc-50 break-words w-full"
                   style={{
                     fontFamily: selectedFont ? `${selectedFont}, serif` : "serif",
                   }}
@@ -1460,7 +1460,7 @@ function CollectionDocumentsSection({
                   <div className={`absolute inset-0 flex items-center justify-center p-4 ${isRepositioning ? 'pointer-events-none opacity-50' : ''}`}>
                     <div className="bg-black px-6 py-4">
                       <h3
-                        className="text-6xl font-bold text-white break-words text-center"
+                        className="text-3xl sm:text-4xl md:text-6xl font-bold text-white break-words text-center"
                         style={{
                           fontFamily: selectedFont ? `${selectedFont}, serif` : "serif",
                         }}
@@ -1473,7 +1473,7 @@ function CollectionDocumentsSection({
               ) : (
                 <div className="flex flex-col justify-center h-full p-4">
                   <h3
-                    className="text-6xl font-bold text-black dark:text-zinc-50 break-words w-full"
+                    className="text-3xl sm:text-4xl md:text-6xl font-bold text-black dark:text-zinc-50 break-words w-full"
                     style={{
                       fontFamily: selectedFont ? `${selectedFont}, serif` : "serif",
                     }}
