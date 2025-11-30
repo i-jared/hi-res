@@ -20,7 +20,7 @@ export default function Home() {
       <div
         className="h-full w-full bg-cover bg-center bg-no-repeat"
         style={{
-          backgroundImage: "url('/hero-image.jpg')",
+          backgroundImage: "url('/hero.webp')",
           backgroundColor: "#1a1a1a",
         }}
       >
